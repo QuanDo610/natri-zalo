@@ -4,9 +4,9 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('🌱 Seeding database (v2 — multi-role)...');
 
-  // ---- Users ----
+  // ---- Users (Staff / Admin) ----
   const adminPassword = await bcrypt.hash('admin123', 10);
   const staffPassword = await bcrypt.hash('staff123', 10);
 
@@ -43,14 +43,16 @@ async function main() {
     { code: 'DL005', name: 'Hoàng Thị Em',    phone: '0945678901', shopName: 'Tạp hóa Em',             address: '654 Võ Văn Tần, Q3, HCM' },
   ];
 
+  const dealerRecords: any[] = [];
   for (const d of dealersData) {
-    await prisma.dealer.upsert({
+    const dealer = await prisma.dealer.upsert({
       where: { code: d.code },
       update: {},
       create: d,
     });
+    dealerRecords.push(dealer);
   }
-  console.log('✅ Dealers created:', dealersData.length);
+  console.log('✅ Dealers created:', dealerRecords.length);
 
   // ---- Products ----
   const productsData = [
@@ -75,8 +77,7 @@ async function main() {
   // ---- Barcode Items (50 barcodes) ----
   const barcodes: string[] = [];
   for (let i = 1; i <= 50; i++) {
-    const barcode = `893600${String(i).padStart(4, '0')}`;
-    barcodes.push(barcode);
+    barcodes.push(`893600${String(i).padStart(4, '0')}`);
   }
 
   let barcodeCount = 0;
@@ -86,15 +87,10 @@ async function main() {
       await prisma.barcodeItem.upsert({
         where: { barcode: barcodes[i] },
         update: {},
-        create: {
-          barcode: barcodes[i],
-          productId: products[productIndex].id,
-        },
+        create: { barcode: barcodes[i], productId: products[productIndex].id },
       });
       barcodeCount++;
-    } catch (e) {
-      // skip duplicates
-    }
+    } catch { /* skip duplicates */ }
   }
   console.log('✅ Barcodes created:', barcodeCount);
 
@@ -112,46 +108,72 @@ async function main() {
     { name: 'Mai Thị Trang',      phone: '0850123456' },
   ];
 
-  const customers: any[] = [];
+  const customerRecords: any[] = [];
   for (const c of customersData) {
     const customer = await prisma.customer.upsert({
       where: { phone: c.phone },
       update: {},
       create: c,
     });
-    customers.push(customer);
+    customerRecords.push(customer);
   }
-  console.log('✅ Customers created:', customers.length);
+  console.log('✅ Customers created:', customerRecords.length);
+
+  // ---- UserAccounts for Dealers (OTP login) ----
+  for (const dealer of dealerRecords) {
+    const existing = await prisma.userAccount.findUnique({ where: { phone: dealer.phone } });
+    if (!existing) {
+      await prisma.userAccount.create({
+        data: {
+          phone: dealer.phone,
+          role: 'DEALER',
+          dealerId: dealer.id,
+        },
+      });
+    }
+  }
+  console.log('✅ UserAccounts for dealers created:', dealerRecords.length);
+
+  // ---- UserAccounts for Customers (OTP login) ----
+  for (const customer of customerRecords) {
+    const existing = await prisma.userAccount.findUnique({ where: { phone: customer.phone } });
+    if (!existing) {
+      await prisma.userAccount.create({
+        data: {
+          phone: customer.phone,
+          role: 'CUSTOMER',
+          customerId: customer.id,
+        },
+      });
+    }
+  }
+  console.log('✅ UserAccounts for customers created:', customerRecords.length);
 
   // ---- Activations (20 sample, within last 14 days) ----
-  const dealers = await prisma.dealer.findMany();
   const allBarcodes = await prisma.barcodeItem.findMany({
     where: { activated: false },
     take: 20,
   });
 
   for (let i = 0; i < Math.min(20, allBarcodes.length); i++) {
-    const customer = customers[i % customers.length];
-    const dealer = i % 3 === 0 ? null : dealers[i % dealers.length]; // some without dealer
+    const customer = customerRecords[i % customerRecords.length];
+    const dealer = i % 3 === 0 ? null : dealerRecords[i % dealerRecords.length];
     const daysAgo = Math.floor(Math.random() * 14);
     const createdAt = new Date();
     createdAt.setDate(createdAt.getDate() - daysAgo);
 
     const barcodeItem = allBarcodes[i];
 
-    // Mark barcode as activated
     await prisma.barcodeItem.update({
       where: { id: barcodeItem.id },
       data: { activated: true, activatedAt: createdAt },
     });
 
-    // Increment customer points
     await prisma.customer.update({
       where: { id: customer.id },
       data: { points: { increment: 1 } },
     });
 
-    // Increment dealer points
     if (dealer) {
       await prisma.dealer.update({
         where: { id: dealer.id },
@@ -159,7 +181,6 @@ async function main() {
       });
     }
 
-    // Create activation
     await prisma.activation.create({
       data: {
         barcodeItemId: barcodeItem.id,
@@ -172,7 +193,6 @@ async function main() {
       },
     });
 
-    // Audit log
     await prisma.auditLog.create({
       data: {
         action: 'ACTIVATION_CREATED',
@@ -191,8 +211,11 @@ async function main() {
   console.log('✅ Activations seeded: 20');
 
   console.log('\n🎉 Seed complete!');
-  console.log('Admin login: admin / admin123');
-  console.log('Staff login: staff01 / staff123');
+  console.log('── Login credentials ──');
+  console.log('Admin:    admin / admin123');
+  console.log('Staff:    staff01 / staff123');
+  console.log('Customer: 0351234567 (OTP: check console log)');
+  console.log('Dealer:   0901234567 (OTP: check console log, dealer DL001)');
 }
 
 main()
