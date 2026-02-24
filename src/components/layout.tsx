@@ -15,6 +15,9 @@ import ResultPage from "@/pages/result";
 import LoginPage from "@/pages/login";
 import CustomerHistoryPage from "@/pages/customer-history";
 import DealerDashboardPage from "@/pages/dealer-dashboard";
+import StaffHomePage from "@/pages/staff-home";
+import AdminHomePage from "@/pages/admin-home";
+import BarcodeManagePage from "@/pages/barcode-manage";
 
 const Layout = () => {
   return (
@@ -29,6 +32,9 @@ const Layout = () => {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/customer-history" element={<CustomerHistoryPage />} />
               <Route path="/dealer-dashboard" element={<DealerDashboardPage />} />
+              <Route path="/staff-home" element={<StaffHomePage />} />
+              <Route path="/admin-home" element={<AdminHomePage />} />
+              <Route path="/barcode-manage" element={<BarcodeManagePage />} />
             </AnimationRoutes>
           </ZMPRouter>
         </SnackbarProvider>

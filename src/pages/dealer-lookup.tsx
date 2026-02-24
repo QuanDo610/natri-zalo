@@ -77,12 +77,24 @@ function DealerLookupPage() {
                 variant="secondary"
                 fullWidth
                 onClick={() => {
-                  if (authUser.role === 'DEALER') navigate('/dealer-dashboard');
-                  else if (authUser.role === 'CUSTOMER') navigate('/customer-history');
+                  switch (authUser.role) {
+                    case 'DEALER':
+                      navigate('/dealer-dashboard');
+                      break;
+                    case 'CUSTOMER':
+                      navigate('/customer-history');
+                      break;
+                    case 'STAFF':
+                      navigate('/staff-home');
+                      break;
+                    case 'ADMIN':
+                      navigate('/admin-home');
+                      break;
+                  }
                 }}
                 size="small"
               >
-                👤 {authUser.role === 'DEALER' ? 'Dashboard' : 'Lịch sử'}
+                👤 {authUser.role === 'DEALER' ? 'Dashboard' : authUser.role === 'CUSTOMER' ? 'Lịch sử' : authUser.role === 'STAFF' ? 'Nhân viên' : 'Quản trị'}
               </Button>
             </>
           )}

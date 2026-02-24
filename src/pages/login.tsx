@@ -1,14 +1,16 @@
-// ===== Login Page: OTP-based for Customer / Dealer =====
+// ===== Login Page v3: 4 roles — OTP for customer/dealer, password for staff/admin =====
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'zmp-ui';
 import { Box, Button, Input, Text, Page, Select } from 'zmp-ui';
 import { useSetAtom } from 'jotai';
 import { accessTokenAtom, refreshTokenAtom, authUserAtom } from '@/store/app-store';
-import { api } from '@/services/api-client';
+import { api, setApiAccessToken } from '@/services/api-client';
 import type { ApiError, UserRole } from '@/types';
 
 const { Option } = Select;
+
+type LoginMethod = 'otp' | 'password';
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -16,13 +18,21 @@ function LoginPage() {
   const setRefreshToken = useSetAtom(refreshTokenAtom);
   const setAuthUser = useSetAtom(authUserAtom);
 
+  const [method, setMethod] = useState<LoginMethod>('otp');
+  const [role, setRole] = useState<UserRole>('CUSTOMER');
+
+  // OTP state
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
-  const [role, setRole] = useState<'CUSTOMER' | 'DEALER'>('CUSTOMER');
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [step, setStep] = useState<'input' | 'otp'>('input');
+  const [countdown, setCountdown] = useState(0);
+
+  // Password state
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -30,18 +40,27 @@ function LoginPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
+  // Auto-switch method based on role
+  useEffect(() => {
+    if (role === 'STAFF' || role === 'ADMIN') {
+      setMethod('password');
+    } else {
+      setMethod('otp');
+    }
+    setError(null);
+    setStep('input');
+  }, [role]);
+
   const handleRequestOtp = async () => {
     if (!phone.trim()) return;
     setLoading(true);
     setError(null);
-
     try {
       await api.requestOtp(phone.trim());
       setStep('otp');
-      setCountdown(300); // 5 minutes
+      setCountdown(300);
     } catch (err) {
-      const apiErr = err as ApiError;
-      setError(apiErr.message || 'Không thể gửi OTP');
+      setError((err as ApiError).message || 'Không thể gửi OTP');
     } finally {
       setLoading(false);
     }
@@ -51,24 +70,53 @@ function LoginPage() {
     if (!otp.trim()) return;
     setLoading(true);
     setError(null);
-
     try {
-      const result = await api.verifyOtp(phone.trim(), otp.trim(), role);
-      setAccessToken(result.accessToken);
-      setRefreshToken(result.refreshToken);
-      setAuthUser(result.user);
-
-      // Navigate based on role
-      if (result.user.role === 'DEALER') {
-        navigate('/dealer-dashboard');
-      } else {
-        navigate('/customer-history');
-      }
+      const otpRole = role as 'CUSTOMER' | 'DEALER';
+      const result = await api.verifyOtp(phone.trim(), otp.trim(), otpRole);
+      onLoginSuccess(result.accessToken, result.refreshToken, result.user);
     } catch (err) {
-      const apiErr = err as ApiError;
-      setError(apiErr.message || 'OTP không hợp lệ');
+      setError((err as ApiError).message || 'OTP không hợp lệ');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordLogin = async () => {
+    if (!username.trim() || !password.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.loginStaff(username.trim(), password.trim());
+      onLoginSuccess(result.accessToken, result.refreshToken, result.user);
+    } catch (err) {
+      setError((err as ApiError).message || 'Sai tài khoản hoặc mật khẩu');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onLoginSuccess = (accessToken: string, refreshToken: string, user: any) => {
+    setAccessToken(accessToken);
+    setRefreshToken(refreshToken);
+    setAuthUser(user);
+    setApiAccessToken(accessToken);
+
+    // Navigate based on role
+    switch (user.role) {
+      case 'CUSTOMER':
+        navigate('/customer-history');
+        break;
+      case 'DEALER':
+        navigate('/dealer-dashboard');
+        break;
+      case 'STAFF':
+        navigate('/staff-home');
+        break;
+      case 'ADMIN':
+        navigate('/admin-home');
+        break;
+      default:
+        navigate('/');
     }
   };
 
@@ -87,27 +135,30 @@ function LoginPage() {
             Đăng nhập
           </Text.Title>
           <Text size="small" className="text-gray-500 mt-2">
-            Đăng nhập bằng số điện thoại + OTP
+            Chọn vai trò và phương thức đăng nhập
           </Text>
         </Box>
 
-        {/* Step 1: Phone + role */}
-        {step === 'phone' && (
-          <Box className="space-y-4">
-            <Box className="space-y-2">
-              <Text size="small" bold className="text-gray-700">
-                Vai trò
-              </Text>
-              <Select
-                value={role}
-                onChange={(val) => setRole(val as 'CUSTOMER' | 'DEALER')}
-                placeholder="Chọn vai trò"
-              >
-                <Option value="CUSTOMER" title="Khách hàng" />
-                <Option value="DEALER" title="Đại lý" />
-              </Select>
-            </Box>
+        {/* Role selection */}
+        <Box className="space-y-2">
+          <Text size="small" bold className="text-gray-700">
+            Vai trò
+          </Text>
+          <Select
+            value={role}
+            onChange={(val) => setRole(val as UserRole)}
+            placeholder="Chọn vai trò"
+          >
+            <Option value="CUSTOMER" title="Khách hàng" />
+            <Option value="DEALER" title="Đại lý" />
+            <Option value="STAFF" title="Nhân viên" />
+            <Option value="ADMIN" title="Quản trị viên" />
+          </Select>
+        </Box>
 
+        {/* ── OTP Login ── */}
+        {method === 'otp' && step === 'input' && (
+          <Box className="space-y-4">
             <Box className="space-y-2">
               <Text size="small" bold className="text-gray-700">
                 Số điện thoại
@@ -125,9 +176,7 @@ function LoginPage() {
             </Box>
 
             {error && (
-              <Text size="xSmall" className="text-red-500">
-                {error}
-              </Text>
+              <Text size="xSmall" className="text-red-500">{error}</Text>
             )}
 
             <Button
@@ -143,8 +192,7 @@ function LoginPage() {
           </Box>
         )}
 
-        {/* Step 2: OTP verification */}
-        {step === 'otp' && (
+        {method === 'otp' && step === 'otp' && (
           <Box className="space-y-4">
             <Box className="bg-blue-50 rounded-lg p-3 border border-blue-200">
               <Text size="xSmall" className="text-blue-700">
@@ -174,9 +222,7 @@ function LoginPage() {
             </Box>
 
             {error && (
-              <Text size="xSmall" className="text-red-500">
-                {error}
-              </Text>
+              <Text size="xSmall" className="text-red-500">{error}</Text>
             )}
 
             <Button
@@ -195,7 +241,7 @@ function LoginPage() {
                 variant="tertiary"
                 fullWidth
                 onClick={() => {
-                  setStep('phone');
+                  setStep('input');
                   setOtp('');
                   setError(null);
                 }}
@@ -206,12 +252,61 @@ function LoginPage() {
                 variant="secondary"
                 fullWidth
                 onClick={handleRequestOtp}
-                disabled={countdown > 240} // Can resend after 60s
+                disabled={countdown > 240}
                 loading={loading}
               >
                 Gửi lại OTP
               </Button>
             </Box>
+          </Box>
+        )}
+
+        {/* ── Password Login (Staff / Admin) ── */}
+        {method === 'password' && (
+          <Box className="space-y-4">
+            <Box className="space-y-2">
+              <Text size="small" bold className="text-gray-700">
+                Tên đăng nhập
+              </Text>
+              <Input
+                placeholder="VD: admin, staff01"
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setError(null);
+                }}
+              />
+            </Box>
+
+            <Box className="space-y-2">
+              <Text size="small" bold className="text-gray-700">
+                Mật khẩu
+              </Text>
+              <Input
+                placeholder="Nhập mật khẩu"
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setError(null);
+                }}
+              />
+            </Box>
+
+            {error && (
+              <Text size="xSmall" className="text-red-500">{error}</Text>
+            )}
+
+            <Button
+              variant="primary"
+              fullWidth
+              onClick={handlePasswordLogin}
+              loading={loading}
+              disabled={!username.trim() || !password.trim() || loading}
+              size="large"
+            >
+              Đăng nhập
+            </Button>
           </Box>
         )}
 
