@@ -1,48 +1,48 @@
-# Natri Loyalty Points System – Zalo Mini App
+# Hệ Thống Tích Điểm Natri – Zalo Mini App
 
-**Version**: v3 | **Status**: Production Ready
+**Phiên bản**: v3 | **Trạng thái**: Sản xuất
 
-Comprehensive loyalty points management system for Natri beverages featuring 4-role authentication (Customer, Dealer, Staff, Admin), barcode scanning, and real-time point tracking.
+Hệ thống quản lý tích điểm hoàn chỉnh cho nước uống Natri với xác thực 4 vai trò (Khách hàng, Đại lý, Nhân viên, Quản trị), quét barcode, và theo dõi điểm theo thời gian thực.
 
-## 📋 Project Overview
+## 📋 Tổng Quan Dự Án
 
-Natri Loyalty Points System is a complete digital ecosystem for managing product promotions and customer engagement:
+Hệ Thống Tích Điểm Natri là một hệ sinh thái kỹ thuật số hoàn chỉnh để quản lý khuyến mãi sản phẩm và tăng cường tương tác khách hàng:
 
-- **Customers**: Track earned points through purchases via dealers
-- **Dealers**: Monitor sales activity, manage activations, track commission points
-- **Staff**: Scan product barcodes, create activations (award customer points)
-- **Admin**: Full operational control via web dashboard
+- **Khách hàng**: Theo dõi điểm kiếm được qua mua hàng qua đại lý
+- **Đại lý**: Giám sát hoạt động bán hàng, quản lý kích hoạt, theo dõi điểm hoa hồng
+- **Nhân viên**: Quét barcode sản phẩm, tạo kích hoạt (trao điểm cho khách hàng)
+- **Quản trị**: Kiểm soát toàn bộ hoạt động qua dashboard web
 
-### Core Architecture
+### Kiến Trúc Cơ Bản
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│           NATRI LOYALTY POINTS SYSTEM v3                │
+│       HỆ THỐNG TÍCH ĐIỂM NATRI v3                      │
 ├──────────────────┬──────────────────┬──────────────────┤
-│   ZMP Frontend   │   Backend API    │  Admin Dashboard │
+│   ZMP Frontend   │   Backend API    │ Admin Dashboard  │
 │   (React/TS)     │  (NestJS/Prisma) │  (React/Ant)     │
 │   Port: 3000     │   Port: 3001     │   Port: 5174     │
-│  4-role Login    │   PostgreSQL     │   Full CRUD      │
-│  Camera Scan     │   4 Role RBAC    │   Reporting      │
+│  Login 4 vai trò │   PostgreSQL     │   CRUD Đầy đủ    │
+│  Quét Camera     │   RBAC 4 vai trò │   Báo cáo        │
 └─────────────────┴──────────────────┴──────────────────┘
 ```
 
-## 🚀 Quick Start
+## 🚀 Bắt Đầu Nhanh
 
-### Prerequisites
+### Yêu Cầu Trước
 
-- **Node.js** 18+ with npm
-- **PostgreSQL** 13+ (running locally or Docker)
-- **Zalo Mini App CLI** (for ZMP deployment only)
+- **Node.js** 18+ với npm
+- **PostgreSQL** 13+ (chạy cục bộ hoặc Docker)
+- **Zalo Mini App CLI** (chỉ để triển khai ZMP)
 
-### 1️⃣ Backend Setup
+### 1️⃣ Cài Đặt Backend
 
 ```bash
 cd backend
 npm install --legacy-peer-deps
 ```
 
-**Configure Database** – Create `.env`:
+**Cấu hình Database** – Tạo `.env`:
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/natri_loyalty"
 JWT_SECRET="your-super-secret-key-change-in-production"
@@ -52,102 +52,102 @@ OTP_EXPIRATION=300
 PHONE_OTP_LENGTH=6
 ```
 
-**Database Migration & Seed**:
+**Migrate & Seed Database**:
 ```bash
 npx prisma migrate dev --name initial
 npx prisma db seed
 ```
 
-**Start Backend** (port 3001):
+**Bật Backend** (port 3001):
 ```bash
 npm run start:dev
 ```
 
-### 2️⃣ Zalo Mini App (ZMP) Setup
+### 2️⃣ Cài Đặt Zalo Mini App (ZMP)
 
 ```bash
 cd .
 npm install
 ```
 
-**Start ZMP** (port 3000):
+**Bật ZMP** (port 3000):
 ```bash
 zmp start
 ```
 
-### 3️⃣ Admin Dashboard Setup
+### 3️⃣ Cài Đặt Admin Dashboard
 
 ```bash
 cd admin
 npm install --legacy-peer-deps
 ```
 
-**Start Admin Dashboard** (port 5174):
+**Bật Admin Dashboard** (port 5174):
 ```bash
 npm run dev
 ```
 
 ---
 
-## 🔐 Mock Credentials
+## 🔐 Thông Tin Đăng Nhập Tester
 
 ### Frontend (ZMP) & Backend Login
 
-| Role | Method | Username/Phone | Password/OTP |
-|------|--------|--------|--------|
-| **CUSTOMER** | OTP | 0351234567 | 123456 |
-| **DEALER** | OTP | 0901234567 | 123456 |
-| **STAFF** | Password | staff01 | staff123 |
-| **ADMIN** | Password | admin | admin123 |
+| Vai trò | Phương thức | Username/SĐT | Mật khẩu/OTP |
+|---------|-----------|---------|----------|
+| **KHÁCH HÀNG** | OTP | 0351234567 | 123456 |
+| **ĐẠI LÝ** | OTP | 0901234567 | 123456 |
+| **NHÂN VIÊN** | Mật khẩu | staff01 | staff123 |
+| **QUẢN TRỊ** | Mật khẩu | admin | admin123 |
 
-**Dealer Lookup**: Enter code `DL001` to find "Cửa hàng An Khang"
+**Tra cứu Đại lý**: Nhập mã `DL001` để tìm "Cửa hàng An Khang"
 
 ### Admin Dashboard
 
-Same as ADMIN credentials above (username: `admin`, password: `admin123`)
+Dùng thông tin ADMIN trên (username: `admin`, password: `admin123`)
 
 ---
 
-## 🏗️ Project Structure
+## 🏗️ Cấu Trúc Dự Án
 
 ```
 natri-zalo/
 ├── backend/                          # NestJS API Server
 │   ├── src/
-│   │   ├── auth/                    # JWT, OTP flows
-│   │   ├── barcodes/                # Barcode management (POST/GET)
-│   │   ├── activations/             # Point activation logic
-│   │   ├── me/                      # Self-service endpoints
-│   │   ├── products/                # Product catalog
-│   │   ├── dealers/                 # Dealer management
-│   │   ├── customers/               # Customer management
-│   │   ├── guards/                  # Auth & RBAC guards
+│   │   ├── auth/                    # JWT, luồng OTP
+│   │   ├── barcodes/                # Quản lý barcode
+│   │   ├── activations/             # Logic tích điểm
+│   │   ├── me/                      # Endpoint tự phục vụ
+│   │   ├── products/                # Danh sách sản phẩm
+│   │   ├── dealers/                 # Quản lý đại lý
+│   │   ├── customers/               # Quản lý khách hàng
+│   │   ├── guards/                  # Guard auth & RBAC
 │   │   └── app.module.ts
 │   ├── prisma/
-│   │   ├── schema.prisma            # DB schema (v3: BarcodeStatus)
-│   │   └── seed.ts                  # Mock data
+│   │   ├── schema.prisma            # Schema DB (v3: BarcodeStatus)
+│   │   └── seed.ts                  # Dữ liệu tester
 │   └── package.json
 │
 ├── src/                              # Zalo Mini App (ZMP)
 │   ├── pages/
-│   │   ├── login.tsx               # 4-role auth
-│   │   ├── staff-home.tsx          # Staff menu
-│   │   ├── admin-home.tsx          # Admin menu
-│   │   ├── barcode-manage.tsx      # Camera scan + add barcode
-│   │   ├── customer-history.tsx    # Customer activation log
-│   │   ├── dealer-dashboard.tsx    # Dealer stats
-│   │   └── [other pages]
+│   │   ├── login.tsx               # Đăng nhập 4 vai trò
+│   │   ├── staff-home.tsx          # Menu nhân viên
+│   │   ├── admin-home.tsx          # Menu quản trị
+│   │   ├── barcode-manage.tsx      # Quét/thêm barcode
+│   │   ├── customer-history.tsx    # Lịch sử KH
+│   │   ├── dealer-dashboard.tsx    # Dashboard ĐL
+│   │   └── [các trang khác]
 │   ├── components/
-│   │   ├── layout.tsx              # Routing
+│   │   ├── layout.tsx              # Định tuyến
 │   │   ├── clock.tsx
 │   │   └── logo.tsx
 │   ├── services/
-│   │   ├── api-client.ts           # API calls
-│   │   ├── mock-service.ts         # Mock implementation
-│   │   └── scanner.ts              # Camera/barcode QR
+│   │   ├── api-client.ts           # Gọi API
+│   │   ├── mock-service.ts         # Mock data
+│   │   └── scanner.ts              # Camera/barcode
 │   ├── types/
-│   │   └── index.ts                # TypeScript interfaces
-│   └── app.ts                       # Entry point
+│   │   └── index.ts                # TypeScript interface
+│   └── app.ts                       # Điểm vào
 │
 ├── admin/                            # Admin Dashboard
 │   ├── src/
@@ -160,223 +160,224 @@ natri-zalo/
 │   │   │   ├── Activations.tsx
 │   │   │   └── Barcodes.tsx
 │   │   ├── components/
-│   │   ├── services/                # API integration
+│   │   ├── services/                # Tích hợp API
 │   │   ├── mock/
-│   │   │   └── mockData.ts          # Mock CRUD data
+│   │   │   └── mockData.ts          # Dữ liệu mock
 │   │   └── App.tsx
 │   └── package.json
 │
-├── ARCHITECTURE.md                   # v3 system design
-├── TEST_CASES.md                     # Comprehensive test suite
+├── ARCHITECTURE.md                   # Thiết kế hệ thống v3
+├── TEST_CASES.md                     # Test suite
+├── FEATURES.md                       # Danh sách tính năng
 ├── package.json
 ├── tsconfig.json
-└── README.md (this file)
+└── README.md (file này)
 ```
 
 ---
 
-## 🔄 Key Workflows
+## 🔄 Luồng Công Việc Chính
 
-### 📱 Customer Journey
+### 📱 Hành Trình Khách Hàng
 ```
-DealerLookup (search "DL001")
+Tra cứu Đại lý (nhập "DL001")
     ↓
-Login (OTP: 0351234567 + 123456)
+Đăng nhập (OTP: 0351234567 + 123456)
     ↓
-CustomerHistory (view earned points)
-```
-
-### 🛒 Staff Point Activation
-```
-Staff Login (staff01 / staff123)
-    ↓
-Staff Home ("Tích điểm" button)
-    ↓
-Scan Barcode (or manual input)
-    ↓
-Enter Customer Phone + Select Dealer
-    ↓
-Confirm → Points awarded ✓
+Lịch sử (xem điểm kiếm được)
 ```
 
-### 📦 Staff Barcode Management
+### 🛒 Tích Điểm Nhân Viên
 ```
-Staff Login
+Đăng nhập NV (staff01 / staff123)
     ↓
-Staff Home ("Quản lý Barcode" button)
+Trang chủ NV ("Tích điểm")
     ↓
-"Quét Camera" (camera scan barcode)
-    OR
-Manual Input (type barcode code)
+Quét barcode (hoặc nhập thủ công)
     ↓
-Select Product SKU (dropdown)
+Nhập SĐT + Chọn đại lý
     ↓
-"Thêm Barcode" → Added to system ✓
-    ↓
-View Recent List (filter by SKU/status)
+Xác nhận → Trao điểm ✓
 ```
 
-### 👨‍💼 Dealer Dashboard
+### 📦 Quản Lý Barcode NV
 ```
-Dealer Login (OTP: 0901234567 + 123456)
+Đăng nhập NV
     ↓
-Dealer Dashboard
-    ├── Stats (total sales, points, daily/weekly/monthly breakdown)
-    └── Activations (list all sales through this dealer)
+Trang chủ NV ("Quản lý Barcode")
+    ↓
+"Quét Camera" (quét barcode)
+    HOẶC
+Nhập thủ công
+    ↓
+Chọn sản phẩm (dropdown)
+    ↓
+"Thêm Barcode" → Thêm vào hệ thống ✓
+    ↓
+Xem danh sách gần đây (lọc theo SKU/trạng thái)
 ```
 
-### ⚙️ Admin Control
+### 👨‍💼 Dashboard Đại Lý
 ```
-Admin Login (web: admin / admin123)
+Đăng nhập ĐL (OTP: 0901234567 + 123456)
+    ↓
+Dashboard ĐL
+    ├── Thống kê (tổng bán, điểm, ngày/tuần/tháng)
+    └── Kích hoạt (danh sách bán hàng)
+```
+
+### ⚙️ Kiểm Soát Quản Trị
+```
+Đăng nhập Admin (admin / admin123)
     ↓
 Dashboard
-    ├── Dealers (CRUD)
-    ├── Products (CRUD)
-    ├── Customers (view)
-    ├── Activations (view/export)
-    └── Barcodes (view, mass import)
+    ├── Đại lý (CRUD)
+    ├── Sản phẩm (CRUD)
+    ├── Khách hàng (xem)
+    ├── Kích hoạt (xem/xuất)
+    └── Barcode (xem, nhập hàng loạt)
 ```
 
 ---
 
-## 🔐 RBAC Matrix (v3)
+## 🔐 Ma Trận RBAC (v3)
 
-| Action | CUSTOMER | DEALER | STAFF | ADMIN |
-|--------|----------|--------|-------|-------|
-| View own profile | ✓ | ✓ | ✓ | ✓ |
-| View own activations | ✓ | ✓ | ✗ | ✗ |
-| View dealer stats | ✗ | ✓ | ✗ | ✗ |
-| **Create activation** | ✗ | ✗ | ✓ | ✓ |
-| **Add barcode** | ✗ | ✗ | ✓ | ✓ |
-| View all activations | ✗ | ✗ | ✓ | ✓ |
-| View all barcodes | ✗ | ✗ | ✓ | ✓ |
-| CRUD dealer | ✗ | ✗ | ✗ | ✓ |
-| CRUD product | ✗ | ✗ | ✗ | ✓ |
-| CRUD customer | ✗ | ✗ | ✗ | ✓ |
+| Hành động | KH | ĐL | NV | QT |
+|-----------|-----|-----|-----|-----|
+| Xem profile riêng | ✓ | ✓ | ✓ | ✓ |
+| Xem kích hoạt riêng | ✓ | ✓ | ✗ | ✗ |
+| Xem thống kê ĐL | ✗ | ✓ | ✗ | ✗ |
+| **Tạo kích hoạt** | ✗ | ✗ | ✓ | ✓ |
+| **Thêm barcode** | ✗ | ✗ | ✓ | ✓ |
+| Xem tất cả kích hoạt | ✗ | ✗ | ✓ | ✓ |
+| Xem tất cả barcode | ✗ | ✗ | ✓ | ✓ |
+| CRUD đại lý | ✗ | ✗ | ✗ | ✓ |
+| CRUD sản phẩm | ✗ | ✗ | ✗ | ✓ |
+| CRUD khách hàng | ✗ | ✗ | ✗ | ✓ |
 | CRUD barcode | ✗ | ✗ | ✗ | ✓ |
 
 ---
 
-## 🌐 API Endpoints
+## 🌐 Điểm Cuối API
 
-### Auth (No Auth Required)
-
-```
-POST /api/auth/login                  Staff/Admin password login
-POST /api/auth/otp/request            Request OTP for customer/dealer
-POST /api/auth/otp/verify             Verify OTP and get tokens
-POST /api/auth/refresh                Refresh access token
-POST /api/auth/logout                 Revoke refresh token
-```
-
-### Self-Service (/me)
+### Dev Xác Thực (Không cần token)
 
 ```
-GET  /api/me                                     Profile (all roles)
-GET  /api/me/activations?skip=0&take=10        Customer activations
-GET  /api/me/dealer/stats?from=2025-01-01      Dealer statistics
-GET  /api/me/dealer/activations?skip=0&take=10 Dealer activations
+POST /api/auth/login                  Đăng nhập password NV/QT
+POST /api/auth/otp/request            Yêu cầu OTP
+POST /api/auth/otp/verify             Xác thực OTP & đăng nhập
+POST /api/auth/refresh                Làm mới access token
+POST /api/auth/logout                 Hủy refresh token
 ```
 
-### Barcode Management (STAFF/ADMIN Only)
+### Tự Phục Vụ (/me)
 
 ```
-POST /api/barcodes                    Create single barcode
-POST /api/barcodes/batch              Batch import barcodes
-GET  /api/barcodes?sku=P001&status=UNUSED&skip=0&take=50  List with filters
+GET  /api/me                                     Profile (mọi vai trò)
+GET  /api/me/activations?skip=0&take=10        Kích hoạt KH
+GET  /api/me/dealer/stats?from=2025-01-01      Thống kê ĐL
+GET  /api/me/dealer/activations?skip=0&take=10 Kích hoạt ĐL
 ```
 
-### Activations (STAFF/ADMIN Only)
+### Quản Lý Barcode (Chỉ NV/QT)
 
 ```
-POST /api/activations                 Create activation (tích điểm)
-GET  /api/activations?skip=0&take=20  List all activations
-GET  /api/activations/stats           Summary stats
+POST /api/barcodes                    Thêm 1 barcode
+POST /api/barcodes/batch              Nhập hàng loạt
+GET  /api/barcodes?sku=P001&status=UNUSED  Danh sách với lọc
 ```
 
-### Admin CRUD
+### Kích Hoạt (Chỉ NV/QT)
 
 ```
-GET  /api/products                    List products
-POST /api/products                    Create product
-GET  /api/dealers                     List dealers
-POST /api/dealers                     Create dealer
-GET  /api/customers                   List customers
+POST /api/activations                 Tạo kích hoạt
+GET  /api/activations                 Danh sách kích hoạt
+GET  /api/activations/stats           Thống kê tóm tắt
 ```
 
-**See [ARCHITECTURE.md](ARCHITECTURE.md) for full API spec with JSON examples.**
+### CRUD Quản Trị
+
+```
+GET  /api/products                    Danh sách sản phẩm
+POST /api/products                    Tạo sản phẩm
+GET  /api/dealers                     Danh sách đại lý
+POST /api/dealers                     Tạo đại lý
+GET  /api/customers                   Danh sách khách hàng
+```
+
+**Xem [ARCHITECTURE.md](ARCHITECTURE.md) để có API spec đầy đủ với ví dụ JSON.**
 
 ---
 
-## 🧪 Testing
+## 🧪 Kiểm Thử
 
-Comprehensive test suite covering auth, RBAC, barcode management, and UI flows:
+Test suite toàn diện bao gồm xác thực, RBAC, quản lý barcode, và UI flow:
 
 ```bash
-# View all test cases
+# Xem tất cả test case
 cat TEST_CASES.md
 ```
 
-**Test Categories**:
-- **TC-A**: Auth / OTP / Refresh Token (11 cases)
-- **TC-B**: Barcode Management (10 cases)
-- **TC-C**: Activations RBAC (7 cases)
-- **TC-D**: Self-service /me endpoints (8 cases)
-- **TC-E**: ZMP UI Flows (10 cases)
-- **TC-F**: Regression Tests (4 cases)
+**Danh mục Test**:
+- **TC-A**: Xác thực / OTP / Refresh Token (11 case)
+- **TC-B**: Quản Lý Barcode (10 case)
+- **TC-C**: RBAC Kích Hoạt (7 case)
+- **TC-D**: Endpoint /me (8 case)
+- **TC-E**: ZMP UI Flow (10 case)
+- **TC-F**: Regression Test (4 case)
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Stack Công Nghệ
 
 ### Backend
 - **Runtime**: Node.js 18+
 - **Framework**: NestJS 10.3
-- **Database**: PostgreSQL 13+ with Prisma 5.10 ORM
-- **Auth**: JWT + OTP + bcrypt password hashing
+- **Database**: PostgreSQL 13+ với Prisma 5.10 ORM
+- **Xác thực**: JWT + OTP + bcrypt
 - **Validation**: class-validator, class-transformer
 
 ### Frontend (ZMP)
 - **Framework**: React 18
-- **Language**: TypeScript 5
-- **State**: Jotai (atoms)
+- **Ngôn ngữ**: TypeScript 5
+- **Trạng thái**: Jotai (atoms)
 - **UI Components**: zmp-ui, ZMPRouter
-- **Scanner**: ZMP SDK `scanQRCode`
-- **Styling**: SCSS + Tailwind CSS
+- **Quét Camera**: ZMP SDK `scanQRCode`
+- **Style**: SCSS + Tailwind CSS
 - **Build**: Vite
 
 ### Admin Dashboard
 - **Framework**: React 18
-- **Language**: TypeScript 5
+- **Ngôn ngữ**: TypeScript 5
 - **UI**: Ant Design 5
 - **Build**: Vite
-- **State**: Ant Design Form + Custom hooks
+- **Quản lý trạng thái**: Ant Design Form + Hooks
 
 ---
 
-## 📊 DB Schema (v3 Highlights)
+## 📊 Schema DB (Điểm Nổi Bật v3)
 
-### New in v3
+### Mới Trong v3
 - **BarcodeStatus enum**: UNUSED, USED
-- **BarcodeItem**: Added `createdById`, `usedById`, `status` fields
-- **User**: New relations `barcodesCreated`, `barcodesUsed` for audit trail
+- **BarcodeItem**: Thêm `createdById`, `usedById`, `status`
+- **User**: Quan hệ mới `barcodesCreated`, `barcodesUsed`
 
-### Core Tables
-- `User` – Staff/Admin accounts
-- `UserAccount` – Customer/Dealer accounts with OTP
-- `Dealer` – Dealer profiles
-- `Customer` – Customer profiles
-- `Product` – Product catalog (SKU-based)
-- `BarcodeItem` – Physical barcodes with tracking
-- `Activation` – Point award transactions
-- `AuditLog` – Activity trail
-- `RefreshToken` – Token rotation storage
+### Các Bảng Chính
+- `User` – Tài khoản NV/QT
+- `UserAccount` – Tài khoản KH/ĐL với OTP
+- `Dealer` – Profile đại lý
+- `Customer` – Profile khách hàng
+- `Product` – Danh mục sản phẩm
+- `BarcodeItem` – Barcode vật lý
+- `Activation` – Giao dịch trao điểm
+- `AuditLog` – Lịch sử hoạt động
+- `RefreshToken` – Lưu trữ token rotation
 
 ---
 
-## 🚢 Deployment
+## 🚢 Triển Khai
 
-### Development Environment (All on localhost)
+### Môi Trường Dev (Cục Bộ)
 ```
 Backend:   http://localhost:3001/api
 ZMP:       http://localhost:3000
@@ -384,33 +385,34 @@ Admin:     http://localhost:5174
 Database:  localhost:5432 (PostgreSQL)
 ```
 
-### Production
-1. **Backend**: Deploy NestJS on cloud (Heroku, Railway, DigitalOcean)
-   - Update `DATABASE_URL` to production DB
-   - Set strong `JWT_SECRET`
-   - Enable CORS for ZMP domain
+### Sản Xuất
+1. **Backend**: Triển khai NestJS (Heroku, Railway, DigitalOcean)
+   - Cập nhật `DATABASE_URL` sang production
+   - Đặt mật khẩu `JWT_SECRET` mạnh
+   - Enable CORS cho domain ZMP
    
-2. **ZMP**: Deploy to Zalo Mini App Platform
+2. **ZMP**: Triển khai lên Zalo Mini App Platform
    ```bash
    zmp login
    zmp deploy
    ```
 
-3. **Admin**: Deploy React app (Vercel, Netlify)
-   - Update API base URL to production backend
+3. **Admin**: Triển khai React (Vercel, Netlify)
+   - Cập nhật API base URL sang production
 
 ---
 
-## 📖 Documentation
+## 📖 Tài Liệu
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** – Full system design, RBAC matrix, API spec with JSON examples
-- **[TEST_CASES.md](TEST_CASES.md)** – All 50 test cases (auth, RBAC, UI flows)
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** – Thiết kế toàn hệ thống, ma trận RBAC, API spec
+- **[TEST_CASES.md](TEST_CASES.md)** – 50+ test case
+- **[FEATURES.md](FEATURES.md)** – Danh sách tính năng v3 & backlog v4+
 
 ---
 
-## 🔗 Resources
+## 🔗 Tài Nguyên
 
-- [Zalo Mini App Official](https://mini.zalo.me/)
+- [Zalo Mini App Chính Thức](https://mini.zalo.me/)
 - [ZMP SDK Docs](https://mini.zalo.me/documents/api/)
 - [ZaUI Components](https://mini.zalo.me/documents/zaui/)
 - [NestJS Docs](https://docs.nestjs.com/)
@@ -419,8 +421,8 @@ Database:  localhost:5432 (PostgreSQL)
 
 ---
 
-## 📝 License & Support
+## 📝 Giấy Phép & Hỗ Trợ
 
-**Version**: 3.0 | **Last Updated**: February 2025 | **Status**: Production Ready
+**Phiên bản**: 3.0 | **Cập nhật Cuối**: Tháng 2 năm 2025 | **Trạng thái**: Sản xuất
 
-For issues or questions, refer to ARCHITECTURE.md and TEST_CASES.md or check git commit history for detailed implementation changes.
+Để có câu hỏi, xem ARCHITECTURE.md, TEST_CASES.md hoặc lịch sử git commit.
