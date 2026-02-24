@@ -18,15 +18,15 @@ export class ActivationsController {
   constructor(private activationsService: ActivationsService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'STAFF')
   async create(@Body() dto: CreateActivationDto, @Request() req) {
-    // staffId only set for ADMIN/STAFF roles; customers/dealers pass null
-    const staffId = ['ADMIN', 'STAFF'].includes(req.user.role) ? req.user.id : null;
-    return this.activationsService.createActivation(dto, staffId);
+    return this.activationsService.createActivation(dto, req.user.id);
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'STAFF')
   async findAll(
     @Query('skip') skip?: string,
     @Query('take') take?: string,

@@ -7,7 +7,7 @@ import { ProductsModule } from './products/products.module';
 import { CustomersModule } from './customers/customers.module';
 import { ActivationsModule } from './activations/activations.module';
 import { MeModule } from './me/me.module';
-import { DealerMeModule } from './dealer-me/dealer-me.module';
+import { BarcodesModule } from './barcodes/barcodes.module';
 
 @Module({
   imports: [
@@ -19,7 +19,7 @@ import { DealerMeModule } from './dealer-me/dealer-me.module';
     CustomersModule,
     ActivationsModule,
     MeModule,
-    DealerMeModule,
+    BarcodesModule,
   ],
 })
 export class AppModule {}

@@ -73,7 +73,12 @@ export class ActivationsService {
       // 4. Mark barcode as activated
       await tx.barcodeItem.update({
         where: { id: barcodeItem.id },
-        data: { activated: true, activatedAt: new Date() },
+        data: {
+          activated: true,
+          activatedAt: new Date(),
+          status: 'USED',
+          usedById: staffId || null,
+        },
       });
 
       // 5. Increment customer points
