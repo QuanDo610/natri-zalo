@@ -5,8 +5,11 @@ import { ConfigService } from '@nestjs/config';
 
 export interface JwtPayload {
   sub: string;
-  username: string;
-  role: 'ADMIN' | 'STAFF';
+  username?: string;
+  phone?: string;
+  role: 'ADMIN' | 'STAFF' | 'DEALER' | 'CUSTOMER';
+  customerId?: string;
+  dealerId?: string;
 }
 
 @Injectable()
@@ -23,7 +26,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       id: payload.sub,
       username: payload.username,
+      phone: payload.phone,
       role: payload.role,
+      customerId: payload.customerId,
+      dealerId: payload.dealerId,
     };
   }
 }
