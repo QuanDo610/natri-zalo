@@ -1,0 +1,131 @@
+// Prisma Schema for Natri Loyalty Points System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique @db.VarChar(50)
+  password  String   @db.VarChar(255)
+  fullName  String   @db.VarChar(100)
+  role      Role     @default(STAFF)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activations Activation[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model Dealer {
+  id        String   @id @default(uuid())
+  code      String   @unique @db.VarChar(20)
+  name      String   @db.VarChar(100)
+  phone     String   @db.VarChar(15)
+  shopName  String   @db.VarChar(200)
+  address   String?  @db.Text
+  points    Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activations Activation[]
+
+  @@index([code])
+  @@map("dealers")
+}
+
+model Product {
+  id        String   @id @default(uuid())
+  name      String   @db.VarChar(200)
+  sku       String   @unique @db.VarChar(50)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  barcodeItems BarcodeItem[]
+  activations  Activation[]
+
+  @@map("products")
+}
+
+model BarcodeItem {
+  id          String    @id @default(uuid())
+  barcode     String    @unique @db.VarChar(100)
+  productId   String
+  activated   Boolean   @default(false)
+  activatedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  product    Product     @relation(fields: [productId], references: [id])
+  activation Activation?
+
+  @@index([barcode])
+  @@index([productId])
+  @@map("barcode_items")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String   @db.VarChar(100)
+  phone     String   @unique @db.VarChar(15)
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activations Activation[]
+
+  @@index([phone])
+  @@map("customers")
+}
+
+model Activation {
+  id            String   @id @default(uuid())
+  barcodeItemId String   @unique
+  customerId    String
+  dealerId      String?
+  staffId       String
+  productId     String
+  pointsAwarded Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  barcodeItem BarcodeItem @relation(fields: [barcodeItemId], references: [id])
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  dealer      Dealer?     @relation(fields: [dealerId], references: [id])
+  staff       User        @relation(fields: [staffId], references: [id])
+  product     Product     @relation(fields: [productId], references: [id])
+
+  @@index([customerId])
+  @@index([dealerId])
+  @@index([staffId])
+  @@index([createdAt])
+  @@map("activations")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   @db.VarChar(50)
+  entity    String   @db.VarChar(50)
+  entityId  String?
+  userId    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
