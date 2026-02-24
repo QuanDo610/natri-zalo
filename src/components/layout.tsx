@@ -7,20 +7,27 @@ import {
   ZMPRouter,
 } from "zmp-ui";
 import { AppProps } from "zmp-ui/app";
+import { Provider as JotaiProvider } from "jotai";
 
-import HomePage from "@/pages/index";
+import DealerLookupPage from "@/pages/dealer-lookup";
+import EarnPointsPage from "@/pages/earn-points";
+import ResultPage from "@/pages/result";
 
 const Layout = () => {
   return (
-    <App theme={getSystemInfo().zaloTheme as AppProps["theme"]}>
-      <SnackbarProvider>
-        <ZMPRouter>
-          <AnimationRoutes>
-            <Route path="/" element={<HomePage />}></Route>
-          </AnimationRoutes>
-        </ZMPRouter>
-      </SnackbarProvider>
-    </App>
+    <JotaiProvider>
+      <App theme={getSystemInfo().zaloTheme as AppProps["theme"]}>
+        <SnackbarProvider>
+          <ZMPRouter>
+            <AnimationRoutes>
+              <Route path="/" element={<DealerLookupPage />} />
+              <Route path="/earn-points" element={<EarnPointsPage />} />
+              <Route path="/result" element={<ResultPage />} />
+            </AnimationRoutes>
+          </ZMPRouter>
+        </SnackbarProvider>
+      </App>
+    </JotaiProvider>
   );
 };
 export default Layout;
