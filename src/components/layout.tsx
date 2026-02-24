@@ -12,6 +12,9 @@ import { Provider as JotaiProvider } from "jotai";
 import DealerLookupPage from "@/pages/dealer-lookup";
 import EarnPointsPage from "@/pages/earn-points";
 import ResultPage from "@/pages/result";
+import LoginPage from "@/pages/login";
+import CustomerHistoryPage from "@/pages/customer-history";
+import DealerDashboardPage from "@/pages/dealer-dashboard";
 
 const Layout = () => {
   return (
@@ -23,6 +26,9 @@ const Layout = () => {
               <Route path="/" element={<DealerLookupPage />} />
               <Route path="/earn-points" element={<EarnPointsPage />} />
               <Route path="/result" element={<ResultPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/customer-history" element={<CustomerHistoryPage />} />
+              <Route path="/dealer-dashboard" element={<DealerDashboardPage />} />
             </AnimationRoutes>
           </ZMPRouter>
         </SnackbarProvider>

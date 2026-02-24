@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'zmp-ui';
 import { Box, Button, Input, Text, Page, Spinner } from 'zmp-ui';
-import { useSetAtom } from 'jotai';
-import { dealerCodeAtom, dealerInfoAtom } from '@/store/app-store';
+import { useSetAtom, useAtomValue } from 'jotai';
+import { dealerCodeAtom, dealerInfoAtom, authUserAtom } from '@/store/app-store';
 import { api } from '@/services/api-client';
 import type { DealerInfo, ApiError } from '@/types';
 
@@ -12,6 +12,7 @@ function DealerLookupPage() {
   const navigate = useNavigate();
   const setDealerCode = useSetAtom(dealerCodeAtom);
   const setDealerInfo = useSetAtom(dealerInfoAtom);
+  const authUser = useAtomValue(authUserAtom);
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -57,6 +58,34 @@ function DealerLookupPage() {
           <Text size="small" className="text-gray-500 mt-2">
             Nhập mã đại lý (không bắt buộc)
           </Text>
+        </Box>
+
+        {/* Auth buttons */}
+        <Box className="flex gap-2">
+          {!authUser ? (
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => navigate('/login')}
+              size="small"
+            >
+              🔑 Đăng nhập
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                fullWidth
+                onClick={() => {
+                  if (authUser.role === 'DEALER') navigate('/dealer-dashboard');
+                  else if (authUser.role === 'CUSTOMER') navigate('/customer-history');
+                }}
+                size="small"
+              >
+                👤 {authUser.role === 'DEALER' ? 'Dashboard' : 'Lịch sử'}
+              </Button>
+            </>
+          )}
         </Box>
 
         {/* Dealer code input */}
