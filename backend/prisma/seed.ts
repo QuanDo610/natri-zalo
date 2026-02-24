@@ -83,11 +83,16 @@ async function main() {
   let barcodeCount = 0;
   for (let i = 0; i < barcodes.length; i++) {
     const productIndex = i % products.length;
+    const createdById = i % 2 === 0 ? admin.id : staff.id;
     try {
       await prisma.barcodeItem.upsert({
         where: { barcode: barcodes[i] },
         update: {},
-        create: { barcode: barcodes[i], productId: products[productIndex].id },
+        create: {
+          barcode: barcodes[i],
+          productId: products[productIndex].id,
+          createdById,
+        },
       });
       barcodeCount++;
     } catch { /* skip duplicates */ }
@@ -166,7 +171,7 @@ async function main() {
 
     await prisma.barcodeItem.update({
       where: { id: barcodeItem.id },
-      data: { activated: true, activatedAt: createdAt },
+      data: { activated: true, activatedAt: createdAt, status: 'USED', usedById: i % 2 === 0 ? admin.id : staff.id },
     });
 
     await prisma.customer.update({

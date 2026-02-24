@@ -1,238 +1,366 @@
-# Hệ thống Tích điểm Zalo Mini App - Kiến trúc tổng thể (v2)
+# Kiến trúc Hệ thống Tích điểm Natri (v3)
 
-## A) Kiến trúc hệ thống
+## 1) Tổng quan nâng cấp
 
+### Thay đổi chính so với v2:
+- **Login 4 role** trong ZMP: CUSTOMER, DEALER (OTP), STAFF, ADMIN (username/password)
+- **RBAC nâng cấp**: CUSTOMER/DEALER chỉ xem; STAFF tạo activation + quản lý barcode; ADMIN full
+- **Barcode Management**: STAFF/ADMIN quét camera hoặc nhập thủ công → thêm barcode vào hệ thống
+- **BarcodeItem**: thêm `status` (UNUSED/USED), `createdById`, `usedById` để track ai thêm/dùng
+- **Dealer self-service**: chuyển từ `/dealer/me/*` sang `/me/dealer/*` thống nhất
+- **Staff Home**: 2 tính năng: Tích điểm + Quản lý Barcode
+- **Admin Home**: link đến Dashboard web + quản trị trong ZMP
+
+## 2) DB Schema Prisma
+
+### Sơ đồ ER (tóm tắt)
 ```
-┌───────────────────────┐    ┌──────────────────────┐    ┌──────────────────────┐
-│  Zalo Mini App        │    │   Admin Dashboard    │    │     PostgreSQL       │
-│  (React + zmp-ui)     │    │  (React + AntDesign) │    │     Database         │
-│                       │    │                      │    │                      │
-│  - Dealer Lookup      │    │  - Overview          │    │  - users             │
-│  - Login (OTP)        │    │  - Dealers CRUD      │    │  - user_accounts     │
-│  - Earn Points        │    │  - Products/Barcodes │    │  - dealers           │
-│  - Result             │    │  - Customers         │    │  - products          │
-│  - Customer History   │    │  - Activations       │    │  - barcode_items     │
-│  - Dealer Dashboard   │    │  - Users CRUD        │    │  - customers         │
-│                       │    │                      │    │  - activations       │
-└────────┬──────────────┘    └──────────┬───────────┘    │  - audit_logs        │
-         │                              │                │  - otp_codes         │
-         │  REST API                    │ REST API       │  - refresh_tokens    │
-         │         ┌────────────────────┘                └──────────┬───────────┘
-         ▼         ▼                                               │
-    ┌──────────────────────────┐                                   │
-    │   Backend (NestJS)       │───────────────────────────────────┘
-    │   Node.js + TypeScript   │        Prisma ORM
-    │                          │
-    │  Modules:                │
-    │  - AuthModule (JWT+OTP)  │
-    │  - DealerModule          │
-    │  - ProductModule         │
-    │  - CustomerModule        │
-    │  - ActivationModule      │
-    │  - MeModule              │
-    │  - DealerMeModule        │
-    └──────────────────────────┘
+User (staff/admin) ──────── 1:N ──── Activation
+     │                                 │
+     │ 1:N BarcodesCreated             │ N:1
+     │ 1:N BarcodesUsed                │
+     │                                 ▼
+     ▼                           BarcodeItem ──── N:1 ──── Product
+UserAccount ──── 1:1 ──── Customer ──── 1:N ──── Activation
+     │                                            │
+     │           1:1 ──── Dealer ──── 1:N ────────┘
+     │
+     └──── 1:N ──── RefreshToken
 ```
 
-## B) Hệ thống xác thực (Authentication)
+### Bảng mới/cập nhật:
 
-### B.1) 4 vai trò (Roles)
+#### BarcodeItem (cập nhật)
+| Field       | Type           | Mô tả                        |
+|-------------|----------------|-------------------------------|
+| id          | UUID PK        |                               |
+| barcode     | VARCHAR(100) UQ| Mã barcode duy nhất           |
+| productId   | UUID FK        | → Product                     |
+| status      | UNUSED/USED    | Trạng thái barcode            |
+| activated   | Boolean        | Đã kích hoạt?                 |
+| activatedAt | DateTime?      | Thời điểm kích hoạt           |
+| createdById | UUID? FK       | → User (staff/admin đã thêm)  |
+| usedById    | UUID? FK       | → User (staff đã dùng khi activation) |
+| createdAt   | DateTime       |                               |
 
-| Role     | Mô tả                  | Phương thức đăng nhập | Đối tượng liên kết   |
-|----------|-------------------------|-----------------------|----------------------|
-| ADMIN    | Quản trị hệ thống      | Username + Password   | `users` table        |
-| STAFF    | Nhân viên thực địa     | Username + Password   | `users` table        |
-| DEALER   | Đại lý bán hàng        | Phone + OTP           | `user_accounts` → `dealers` |
-| CUSTOMER | Khách hàng cuối        | Phone + OTP           | `user_accounts` → `customers` |
+#### User (cập nhật)
+- Thêm relation: `barcodesCreated`, `barcodesUsed`
 
-### B.2) Luồng xác thực OTP (Customer / Dealer)
+### Các bảng giữ nguyên từ v2:
+- User, UserAccount, RefreshToken, OtpCode, Dealer, Product, Customer, Activation, AuditLog
 
-```
-1. POST /api/auth/otp/request   { phone: "0901234567" }
-   → Server tạo OTP 6 số, lưu vào otp_codes, gửi SMS
-   ← { message: "OTP sent", expiresIn: 300 }
+## 3) API Spec
 
-2. POST /api/auth/otp/verify    { phone: "0901234567", code: "123456", role: "CUSTOMER" }
-   → Xác minh OTP, tạo/tìm UserAccount, liên kết customer/dealer
-   ← { accessToken, refreshToken, user: { id, phone, role, customerId, customer } }
-```
+### 3.1) Auth (4 role)
 
-### B.3) Refresh Token
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/auth/login` | POST | Staff/Admin | Username + password login |
+| `/auth/otp/request` | POST | Public | Gửi OTP đến SĐT |
+| `/auth/otp/verify` | POST | Public | Xác thực OTP → login |
+| `/auth/refresh` | POST | Any | Refresh access token |
+| `/auth/logout` | POST | Any | Revoke refresh token |
 
-```
-POST /api/auth/refresh    { refreshToken: "..." }
-→ Xác minh token, rotate (revoke cũ → tạo mới)
-← { accessToken, refreshToken }
-
-POST /api/auth/logout     { refreshToken: "..." }
-→ Revoke refresh token
-← { message: "Logged out" }
-```
-
-### B.4) JWT Payload
-
+**POST /auth/login**
 ```json
+// Request
+{ "username": "admin", "password": "admin123" }
+// Response 200
 {
-  "sub": "user-id or userAccount-id",
-  "username": "admin",          // chỉ ADMIN/STAFF
-  "phone": "0901234567",        // chỉ CUSTOMER/DEALER
-  "role": "CUSTOMER",
-  "customerId": "customer-uuid", // chỉ CUSTOMER
-  "dealerId": "dealer-uuid"      // chỉ DEALER
+  "accessToken": "eyJ...",
+  "refreshToken": "a1b2c3...",
+  "user": { "id": "u1", "username": "admin", "fullName": "Admin Natri", "role": "ADMIN" }
+}
+// Error 401: { "message": "Invalid credentials" }
+```
+
+**POST /auth/otp/request**
+```json
+// Request
+{ "phone": "0351234567" }
+// Response 200
+{ "message": "OTP sent", "expiresIn": 300 }
+// Error 400: { "message": "Invalid Vietnamese phone number" }
+```
+
+**POST /auth/otp/verify**
+```json
+// Request
+{ "phone": "0351234567", "code": "123456", "role": "CUSTOMER" }
+// Response 200
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "a1b2c3...",
+  "user": {
+    "id": "ua_1",
+    "phone": "0351234567",
+    "role": "CUSTOMER",
+    "customerId": "c1",
+    "customer": { "id": "c1", "name": "Nguyễn Thị Hồng", "phone": "0351234567", "points": 3 }
+  }
+}
+// Error 401: { "message": "Invalid or expired OTP" }
+// Error 400: { "message": "No dealer found with this phone number" } (khi role=DEALER nhưng phone không khớp)
+```
+
+**POST /auth/refresh**
+```json
+// Request
+{ "refreshToken": "a1b2c3..." }
+// Response 200
+{ "accessToken": "eyJ_new...", "refreshToken": "d4e5f6..." }
+// Error 401: { "message": "Invalid or expired refresh token" }
+```
+
+### 3.2) Me endpoints
+
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/me` | GET | Any authenticated | Profile theo role |
+| `/me/activations` | GET | CUSTOMER | Lịch sử kích hoạt KH |
+| `/me/dealer/stats` | GET | DEALER | Thống kê đại lý |
+| `/me/dealer/activations` | GET | DEALER | Danh sách kích hoạt qua đại lý |
+
+**GET /me/activations?skip=0&take=10&search=Natri&dateFrom=2025-01-01**
+```json
+// Response 200 (CUSTOMER)
+{
+  "data": [
+    {
+      "id": "act1",
+      "pointsAwarded": 1,
+      "createdAt": "2025-02-20T10:00:00Z",
+      "product": { "name": "Natri Ion 500ml", "sku": "P001" },
+      "dealer": { "code": "DL001", "name": "Nguyễn Văn An", "shopName": "Cửa hàng An Khang" },
+      "barcodeItem": { "barcode": "8936000001" }
+    }
+  ],
+  "total": 5,
+  "skip": 0,
+  "take": 10
 }
 ```
 
-## C) RBAC Matrix (Quyền truy cập)
-
-| Endpoint                     | ADMIN | STAFF | DEALER | CUSTOMER | Public |
-|------------------------------|:-----:|:-----:|:------:|:--------:|:------:|
-| `POST /auth/login`           |   -   |   -   |   -    |    -     |   ✅   |
-| `POST /auth/otp/request`     |   -   |   -   |   -    |    -     |   ✅   |
-| `POST /auth/otp/verify`      |   -   |   -   |   -    |    -     |   ✅   |
-| `POST /auth/refresh`         |   -   |   -   |   -    |    -     |   ✅   |
-| `POST /auth/logout`          |   -   |   -   |   -    |    -     |   ✅   |
-| `GET /auth/me`               |  ✅   |  ✅   |   ✅   |   ✅     |   ❌   |
-| `GET /dealers/lookup`        |   -   |   -   |   -    |    -     |   ✅   |
-| `GET /dealers`               |  ✅   |  ❌   |   ❌   |   ❌     |   ❌   |
-| `POST /dealers`              |  ✅   |  ❌   |   ❌   |   ❌     |   ❌   |
-| `PUT /dealers/:id`           |  ✅   |  ❌   |   ❌   |   ❌     |   ❌   |
-| `DELETE /dealers/:id`        |  ✅   |  ❌   |   ❌   |   ❌     |   ❌   |
-| `GET /products/by-barcode/*` |   -   |   -   |   -    |    -     |   ✅   |
-| `POST /activations`         |  ✅   |  ✅   |   ✅   |   ✅     |   ❌   |
-| `GET /activations`          |  ✅   |  ✅   |   ❌   |   ❌     |   ❌   |
-| `GET /activations/stats`    |  ✅   |  ❌   |   ❌   |   ❌     |   ❌   |
-| `GET /me`                    |  ✅   |  ✅   |   ✅   |   ✅     |   ❌   |
-| `GET /me/activations`        |  ❌   |  ❌   |   ❌   |   ✅¹    |   ❌   |
-| `GET /dealer/me`             |  ❌   |  ❌   |   ✅²  |   ❌     |   ❌   |
-| `GET /dealer/me/stats`       |  ❌   |  ❌   |   ✅²  |   ❌     |   ❌   |
-| `GET /dealer/me/activations` |  ❌   |  ❌   |   ✅²  |   ❌     |   ❌   |
-| `GET /customers`             |  ✅   |  ✅   |   ❌   |   ❌     |   ❌   |
-| `GET /customers/by-phone/*`  |   -   |   -   |   -    |    -     |   ✅   |
-
-> ¹ Ownership: chỉ xem dữ liệu của chính mình (customerId)  
-> ² Ownership: chỉ xem dữ liệu của chính mình (dealerId)
-
-## D) Database Schema (v2)
-
-### Bảng mới
-
-#### `user_accounts` — Tài khoản OTP cho Customer/Dealer
-| Column     | Type        | Constraint         |
-|------------|-------------|--------------------|
-| id         | UUID        | PK                 |
-| phone      | VARCHAR(15) | UNIQUE             |
-| role       | ENUM        | CUSTOMER / DEALER  |
-| customerId | UUID?       | UNIQUE, FK → customers |
-| dealerId   | UUID?       | UNIQUE, FK → dealers   |
-| active     | BOOLEAN     | DEFAULT true       |
-| createdAt  | TIMESTAMP   |                    |
-| updatedAt  | TIMESTAMP   |                    |
-
-#### `refresh_tokens`
-| Column        | Type         | Constraint              |
-|---------------|-------------|-------------------------|
-| id            | UUID        | PK                      |
-| token         | VARCHAR(500)| UNIQUE                  |
-| userAccountId | UUID?       | FK → user_accounts      |
-| userId        | UUID?       | FK → users (staff/admin)|
-| expiresAt     | TIMESTAMP   |                         |
-| revoked       | BOOLEAN     | DEFAULT false           |
-| createdAt     | TIMESTAMP   |                         |
-
-#### `otp_codes`
-| Column    | Type        | Constraint |
-|-----------|-------------|------------|
-| id        | UUID        | PK         |
-| phone     | VARCHAR(15) |            |
-| code      | VARCHAR(6)  |            |
-| expiresAt | TIMESTAMP   |            |
-| used      | BOOLEAN     | DEFAULT false |
-| createdAt | TIMESTAMP   |            |
-
-### Thay đổi trên bảng cũ
-
-- `activations.staffId`: thay đổi từ **bắt buộc** → **optional** (cho phép customer/dealer tự kích hoạt)
-- `activations` indexes: thêm composite `[customerId, createdAt]` và `[dealerId, createdAt]`
-- `audit_logs`: thêm index `[userId]`
-
-## E) Luồng xử lý chính
-
-### E.1) Luồng đăng nhập Customer
-
-```
-1. Mở app → Trang Dealer Lookup → Nhấn "Đăng nhập"
-2. Chọn Vai trò = "Khách hàng", Nhập SĐT → Gửi OTP
-3. Nhập mã OTP 6 số → Xác nhận
-4. Chuyển đến trang Lịch sử tích điểm
-5. Xem danh sách sản phẩm đã kích hoạt + lọc theo thời gian/từ khóa
+**GET /me/dealer/stats?from=2025-01-01&to=2025-02-28**
+```json
+// Response 200 (DEALER)
+{
+  "dealer": { "points": 15, "code": "DL001", "name": "Nguyễn Văn An", "shopName": "Cửa hàng An Khang" },
+  "totalActivations": 42,
+  "activationsToday": 3,
+  "activationsWeek": 8,
+  "activationsMonth": 25,
+  "uniqueCustomers": 18,
+  "totalPoints": 15
+}
 ```
 
-### E.2) Luồng đăng nhập Dealer
+### 3.3) Barcode Management (STAFF/ADMIN)
 
-```
-1. Mở app → Trang Dealer Lookup → Nhấn "Đăng nhập"
-2. Chọn Vai trò = "Đại lý", Nhập SĐT → Gửi OTP
-3. Nhập mã OTP 6 số → Xác nhận
-4. Chuyển đến Dealer Dashboard
-5. Xem thống kê: điểm, kích hoạt hôm nay/tuần/tháng, khách hàng duy nhất
-6. Xem danh sách kích hoạt + tìm kiếm
-```
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/barcodes` | POST | STAFF, ADMIN | Thêm 1 barcode |
+| `/barcodes/batch` | POST | STAFF, ADMIN | Thêm nhiều barcode |
+| `/barcodes` | GET | STAFF, ADMIN | Danh sách barcode |
 
-### E.3) Luồng tích điểm (không thay đổi)
-
-```
-1. Trang Dealer Lookup → nhập mã đại lý (tùy chọn) → Tiếp tục
-2. Trang Earn Points → quét/nhập barcode + thông tin khách hàng → Gửi
-3. Trang Result → hiển thị kết quả tích điểm
-```
-
-## F) API Endpoints mới (v2)
-
-### Auth
-```
-POST /api/auth/login           # Staff/Admin: username + password
-POST /api/auth/otp/request     # Customer/Dealer: yêu cầu OTP
-POST /api/auth/otp/verify      # Customer/Dealer: xác minh OTP
-POST /api/auth/refresh         # Làm mới access token
-POST /api/auth/logout          # Hủy refresh token
-GET  /api/auth/me              # Thông tin user hiện tại
+**POST /barcodes**
+```json
+// Request
+{ "code": "8936000051", "productSku": "P001" }
+// Response 201
+{
+  "id": "bc_1",
+  "barcode": "8936000051",
+  "product": { "name": "Natri Ion 500ml", "sku": "P001" },
+  "createdBy": { "username": "staff01", "fullName": "Nhân viên 01" }
+}
+// Error 409: { "statusCode": 409, "error": "BARCODE_ALREADY_EXISTS", "message": "Barcode \"8936000051\" already exists" }
+// Error 404: { "message": "Product with SKU \"PXXX\" not found" }
+// Error 403: CUSTOMER/DEALER gọi → Forbidden
 ```
 
-### Customer self-service
+**POST /barcodes/batch**
+```json
+// Request
+{
+  "items": [
+    { "code": "8936000051", "productSku": "P001" },
+    { "code": "8936000052", "productSku": "P002" },
+    { "code": "8936000051", "productSku": "P001" }
+  ]
+}
+// Response 200
+{
+  "total": 3,
+  "created": 2,
+  "errors": 1,
+  "details": [
+    { "code": "8936000051", "status": "created" },
+    { "code": "8936000052", "status": "created" },
+    { "code": "8936000051", "status": "error", "error": "Barcode \"8936000051\" already exists" }
+  ]
+}
 ```
-GET /api/me                    # Profile + role
-GET /api/me/activations        # Lịch sử kích hoạt (filter: skip, take, dateFrom, dateTo, search)
+
+**GET /barcodes?sku=P001&status=UNUSED&q=8936&skip=0&take=50**
+```json
+// Response 200
+{
+  "data": [
+    {
+      "id": "bc_1",
+      "barcode": "8936000051",
+      "status": "UNUSED",
+      "activated": false,
+      "activatedAt": null,
+      "createdAt": "2025-02-20T09:00:00Z",
+      "product": { "name": "Natri Ion 500ml", "sku": "P001" },
+      "createdBy": { "username": "staff01", "fullName": "Nhân viên 01" }
+    }
+  ],
+  "total": 30,
+  "skip": 0,
+  "take": 50
+}
 ```
 
-### Dealer self-service
+### 3.4) Activations (STAFF/ADMIN only)
+
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/activations` | POST | STAFF, ADMIN | Tạo kích hoạt (tích điểm) |
+| `/activations` | GET | STAFF, ADMIN | Danh sách kích hoạt |
+| `/activations/stats` | GET | ADMIN | Thống kê tổng |
+
+**POST /activations**
+```json
+// Request
+{
+  "barcode": "8936000021",
+  "customer": { "name": "Nguyễn Thị Hồng", "phone": "0351234567" },
+  "dealerCode": "DL001"
+}
+// Response 200
+{
+  "activationId": "act_1",
+  "product": { "id": "p1", "name": "Natri Ion 500ml", "sku": "P001" },
+  "customerPointsAfter": 4,
+  "dealerPointsAfter": 6
+}
+// Error 409: Barcode đã kích hoạt
+// Error 400: Barcode không tồn tại
+// Error 403: CUSTOMER/DEALER gọi → Forbidden
 ```
-GET /api/dealer/me             # Profile đại lý
-GET /api/dealer/me/stats       # Thống kê dashboard
-GET /api/dealer/me/activations # Danh sách kích hoạt (filter)
+
+### 3.5) CRUD Admin
+
+| Endpoint | Method | Role | Mô tả |
+|----------|--------|------|--------|
+| `/products` | GET | ADMIN | Danh sách sản phẩm |
+| `/products` | POST | ADMIN | Tạo sản phẩm |
+| `/dealers/lookup` | GET | Public | Tra cứu đại lý theo code |
+| `/dealers` | GET/POST | ADMIN | CRUD đại lý |
+| `/customers` | GET | ADMIN | Danh sách KH |
+
+## 4) RBAC Matrix
+
+| Resource / Action | CUSTOMER | DEALER | STAFF | ADMIN |
+|---|---|---|---|---|
+| POST /auth/login (password) | ✗ | ✗ | ✓ | ✓ |
+| POST /auth/otp/* (OTP) | ✓ | ✓ | ✗ | ✗ |
+| GET /me (profile) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) |
+| GET /me/activations | ✓ (own) | ✗ | ✗ | ✗ |
+| GET /me/dealer/stats | ✗ | ✓ (own) | ✗ | ✗ |
+| GET /me/dealer/activations | ✗ | ✓ (own) | ✗ | ✗ |
+| POST /activations (tích điểm) | **✗** | **✗** | ✓ | ✓ |
+| GET /activations | ✗ | ✗ | ✓ | ✓ |
+| GET /activations/stats | ✗ | ✗ | ✗ | ✓ |
+| POST /barcodes (thêm barcode) | **✗** | **✗** | ✓ | ✓ |
+| POST /barcodes/batch | **✗** | **✗** | ✓ | ✓ |
+| GET /barcodes | ✗ | ✗ | ✓ | ✓ |
+| GET /products | ✗ | ✗ | ✓ (read) | ✓ |
+| POST /products | ✗ | ✗ | ✗ | ✓ |
+| GET /dealers (admin list) | ✗ | ✗ | ✓ (read) | ✓ |
+| GET /dealers/lookup (public) | ✓ | ✓ | ✓ | ✓ |
+| CRUD /customers | ✗ | ✗ | ✗ | ✓ |
+
+### Enforcement:
+1. **JwtAuthGuard**: Xác thực JWT token
+2. **RolesGuard** + **@Roles()**: Kiểm tra role trong JWT payload
+3. **OwnershipGuard** + **@CheckOwnership()**: So sánh `req.user.customerId/dealerId` với resource; ADMIN/STAFF bypass
+
+## 5) UI Flow ZMP
+
+### Routes:
+| Path | Component | Role | Mô tả |
+|------|-----------|------|--------|
+| `/` | DealerLookupPage | Any | Nhập mã đại lý + nút đăng nhập |
+| `/earn-points` | EarnPointsPage | Any (STAFF/ADMIN tạo activation) | Quét barcode + nhập KH |
+| `/result` | ResultPage | Any | Kết quả tích điểm |
+| `/login` | LoginPage | Public | Đăng nhập 4 role |
+| `/customer-history` | CustomerHistoryPage | CUSTOMER | Lịch sử tích điểm |
+| `/dealer-dashboard` | DealerDashboardPage | DEALER | Thống kê đại lý |
+| `/staff-home` | StaffHomePage | STAFF | Menu: Tích điểm + Quản lý Barcode |
+| `/admin-home` | AdminHomePage | ADMIN | Menu quản trị + link Dashboard web |
+| `/barcode-manage` | BarcodeManagePage | STAFF, ADMIN | Quét/thêm barcode + danh sách |
+
+### Luồng màn hình:
+
+```
+DealerLookupPage (/)
+├── [Đăng nhập] → LoginPage
+│   ├── Chọn CUSTOMER/DEALER → OTP flow → success
+│   │   ├── CUSTOMER → /customer-history
+│   │   └── DEALER → /dealer-dashboard
+│   └── Chọn STAFF/ADMIN → Password flow → success
+│       ├── STAFF → /staff-home
+│       │   ├── "Tích điểm" → /earn-points
+│       │   └── "Quản lý Barcode" → /barcode-manage
+│       └── ADMIN → /admin-home
+│           ├── "Tích điểm" → /earn-points
+│           ├── "Quản lý Barcode" → /barcode-manage
+│           └── "Dashboard Web" → external link
+└── [Tiếp tục] → /earn-points → /result
 ```
 
-## G) Frontend ZMP Pages (v2)
+### Barcode Management UX States:
 
-| Route               | Trang              | Mô tả                                      |
-|----------------------|--------------------|---------------------------------------------|
-| `/`                  | Dealer Lookup      | Nhập mã đại lý + nút Đăng nhập             |
-| `/login`             | Login              | Đăng nhập OTP (chọn vai trò, nhập SĐT, OTP)|
-| `/earn-points`       | Earn Points        | Quét barcode + thông tin KH                 |
-| `/result`            | Result             | Kết quả tích điểm                           |
-| `/customer-history`  | Customer History   | Lịch sử tích điểm KH (lọc, phân trang)     |
-| `/dealer-dashboard`  | Dealer Dashboard   | Dashboard đại lý (thống kê + danh sách)     |
+| State | UI |
+|-------|-----|
+| Loading | Spinner component |
+| Empty list | "Chưa có barcode nào" + hướng dẫn |
+| Scan success | Barcode value tự điền vào input |
+| Scan unavailable | Fallback nhập thủ công |
+| Duplicate barcode (409) | Thông báo đỏ "Barcode đã tồn tại" |
+| Product not found (404) | Thông báo đỏ "Sản phẩm không tồn tại" |
+| Forbidden (403) | Thông báo đỏ "Không có quyền" |
+| Network error | Thông báo đỏ "Lỗi hệ thống" |
+| Add success | Thông báo xanh + refresh danh sách |
 
-## H) Mock Data (v2)
+## 6) Mock Data
 
-### OTP mặc định trong mock mode
-- Mã OTP luôn là: `123456`
-- Hết hạn sau 5 phút
+### Tài khoản mẫu:
+| Role | Phương thức | Thông tin |
+|------|------------|-----------|
+| ADMIN | Password | username: `admin`, password: `admin123` |
+| STAFF | Password | username: `staff01`, password: `staff123` |
+| CUSTOMER | OTP | phone: `0351234567`, OTP mock: `123456` |
+| DEALER | OTP | phone: `0901234567` (DL001), OTP mock: `123456` |
 
-### Tài khoản mẫu
+### Dữ liệu mock:
+- 5 Dealers (DL001-DL005)
+- 5 Products (P001-P005)
+- 50 Barcodes (8936000001-8936000050), 20 đầu đã USED
+- 10 Customers
+- 20 Activations (seeded)
+- 5 UserAccount dealers + 10 UserAccount customers
 
-| Vai trò  | Thông tin đăng nhập         | Ghi chú              |
-|----------|-----------------------------|----------------------|
-| ADMIN    | admin / admin123            | Username + Password  |
-| STAFF    | staff01 / staff123          | Username + Password  |
-| CUSTOMER | 0351234567 + OTP 123456     | Nguyễn Thị Hồng      |
-| DEALER   | 0901234567 + OTP 123456     | Đại lý DL001 - An Khang |
+## 7) Audit Log
+
+Mỗi action quan trọng được ghi vào `audit_logs`:
+- `LOGIN` — staff/admin login, OTP verify
+- `OTP_REQUESTED` — yêu cầu OTP
+- `ACTIVATION_CREATED` — tạo kích hoạt (với barcode, customer, dealer info)
+- `BARCODE_CREATED` — thêm barcode vào hệ thống (ai thêm, product nào)
+
+Metadata JSON chứa: actor, target, payload chi tiết.

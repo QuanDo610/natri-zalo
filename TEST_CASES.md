@@ -1,161 +1,286 @@
-# Test Cases — Hệ thống Tích điểm Natri (v2)
+# Test Cases – Hệ thống Tích điểm Natri v3
 
-## A) Test Cases — OTP Authentication
+## A) Auth / OTP / Refresh Token
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| A1 | Request OTP — SĐT hợp lệ | `POST /auth/otp/request` phone=0351234567 | 200, `{ message: "OTP sent", expiresIn: 300 }` | |
-| A2 | Request OTP — SĐT sai format | phone=12345 | 400, "Invalid Vietnamese phone number" | |
-| A3 | Verify OTP — đúng mã | phone+code+role=CUSTOMER | 200, accessToken + refreshToken + user | |
-| A4 | Verify OTP — sai mã | code=999999 | 401, "Invalid or expired OTP" | |
-| A5 | Verify OTP — hết hạn | code đúng nhưng > 5 phút | 401, "Invalid or expired OTP" | |
-| A6 | Verify OTP — tự tạo Customer mới | phone chưa có trong DB | 200, user.role=CUSTOMER, auto-create | |
-| A7 | Verify OTP — Dealer không tồn tại | role=DEALER, phone không khớp dealer | 400, "No dealer found..." | |
-| A8 | Verify OTP — Dealer hợp lệ | role=DEALER, phone=0901234567 (DL001) | 200, user.dealerId set, dealer info | |
+### TC-A01: OTP Request – CUSTOMER
+- **API**: `POST /auth/otp/request`
+- **Input**: `{ "phone": "0351234567" }`
+- **Expected**: 200 `{ "message": "OTP sent", "expiresIn": 300 }`
 
-## B) Test Cases — Refresh Token
+### TC-A02: OTP Verify – CUSTOMER success
+- **API**: `POST /auth/otp/verify`
+- **Input**: `{ "phone": "0351234567", "code": "123456", "role": "CUSTOMER" }`
+- **Expected**: 200, body chứa `accessToken`, `refreshToken`, `user.role === "CUSTOMER"`, `user.customerId !== null`
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| B1 | Refresh — token hợp lệ | `POST /auth/refresh` refreshToken=valid | 200, new accessToken + refreshToken | |
-| B2 | Refresh — token đã revoke | refreshToken=revoked | 401, "Invalid or expired refresh token" | |
-| B3 | Refresh — token hết hạn | refreshToken=expired | 401 | |
-| B4 | Logout — revoke token | `POST /auth/logout` refreshToken=valid | 200, "Logged out" | |
-| B5 | Refresh sau logout | refreshToken đã logout | 401 | |
+### TC-A03: OTP Verify – DEALER success
+- **API**: `POST /auth/otp/verify`
+- **Input**: `{ "phone": "0901234567", "code": "123456", "role": "DEALER" }`
+- **Expected**: 200, `user.role === "DEALER"`, `user.dealerId !== null`
 
-## C) Test Cases — Staff/Admin Login
+### TC-A04: OTP Verify – DEALER phone không khớp dealer nào
+- **API**: `POST /auth/otp/verify`
+- **Input**: `{ "phone": "0999999999", "code": "123456", "role": "DEALER" }`
+- **Expected**: 400, `"No dealer found with this phone number"`
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| C1 | Login admin đúng | admin / admin123 | 200, role=ADMIN, accessToken | |
-| C2 | Login staff đúng | staff01 / staff123 | 200, role=STAFF, accessToken | |
-| C3 | Login sai password | admin / wrong | 401, "Invalid credentials" | |
-| C4 | Login user không tồn tại | unknown / 123 | 401 | |
+### TC-A05: OTP Verify – mã OTP sai
+- **API**: `POST /auth/otp/verify`
+- **Input**: `{ "phone": "0351234567", "code": "000000", "role": "CUSTOMER" }`
+- **Expected**: 401, `"Invalid or expired OTP"`
 
-## D) Test Cases — Customer History (GET /me/activations)
+### TC-A06: Staff login – password thành công
+- **API**: `POST /auth/login`
+- **Input**: `{ "username": "staff01", "password": "staff123" }`
+- **Expected**: 200, `user.role === "STAFF"`, `accessToken`, `refreshToken` không null
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| D1 | Xem lịch sử — customer login | Bearer token (CUSTOMER) | 200, danh sách activations của customer | |
-| D2 | Lọc theo thời gian — 7 ngày | dateFrom=7d ago | 200, chỉ items trong 7 ngày | |
-| D3 | Lọc theo từ khóa | search=Natri | 200, chỉ items có "Natri" | |
-| D4 | Phân trang | skip=0, take=5 | 200, max 5 items, total đúng | |
-| D5 | Customer xem data người khác | token customer A, query customer B | 403 hoặc chỉ trả data của A | |
-| D6 | DEALER gọi /me/activations | Bearer token (DEALER) | 403, chỉ CUSTOMER được phép | |
-| D7 | Không có token | No Authorization header | 401 | |
+### TC-A07: Admin login – password thành công
+- **API**: `POST /auth/login`
+- **Input**: `{ "username": "admin", "password": "admin123" }`
+- **Expected**: 200, `user.role === "ADMIN"`
 
-## E) Test Cases — Dealer Dashboard (GET /dealer/me/*)
+### TC-A08: Staff login – sai password
+- **API**: `POST /auth/login`
+- **Input**: `{ "username": "staff01", "password": "wrongpass" }`
+- **Expected**: 401, `"Invalid credentials"`
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| E1 | GET /dealer/me — profile | Bearer (DEALER) | 200, dealer info (code, name, points) | |
-| E2 | GET /dealer/me/stats | Bearer (DEALER) | 200, totalActivations, uniqueCustomers, activationsToday/Week/Month | |
-| E3 | GET /dealer/me/activations | Bearer (DEALER) | 200, danh sách activations qua đại lý này | |
-| E4 | Tìm kiếm activations | search=Hồng | 200, chỉ items có KH "Hồng" | |
-| E5 | CUSTOMER gọi /dealer/me | Bearer (CUSTOMER) | 403, chỉ DEALER được phép | |
-| E6 | ADMIN gọi /dealer/me | Bearer (ADMIN) | 403, không phải DEALER | |
+### TC-A09: Refresh token – thành công
+- **API**: `POST /auth/refresh`
+- **Input**: `{ "refreshToken": "<valid>" }`
+- **Expected**: 200, nhận accessToken mới + refreshToken mới (rotation)
 
-## F) Test Cases — RBAC & Ownership
+### TC-A10: Refresh token – token đã revoke
+- **API**: `POST /auth/refresh`
+- **Input**: `{ "refreshToken": "<revoked>" }`
+- **Expected**: 401, `"Invalid or expired refresh token"`
 
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| F1 | CUSTOMER tạo activation | POST /activations, Bearer (CUSTOMER) | 200, staffId=null | |
-| F2 | DEALER tạo activation | POST /activations, Bearer (DEALER) | 200, staffId=null | |
-| F3 | STAFF tạo activation | POST /activations, Bearer (STAFF) | 200, staffId=staff.id | |
-| F4 | CUSTOMER gọi GET /dealers (admin) | Bearer (CUSTOMER) | 403 | |
-| F5 | DEALER gọi GET /activations/stats | Bearer (DEALER) | 403, chỉ ADMIN | |
-
-## G) Test Cases — Kích hoạt (giữ nguyên từ v1)
-
-| # | Tên test case | Input | Expected | Status |
-|---|---------------|-------|----------|--------|
-| G1 | Kích hoạt barcode hợp lệ + dealer | barcode=8936000021, DL001, 0351234567 | 200, +1 điểm KH + ĐL | |
-| G2 | Barcode đã kích hoạt (trùng) | barcode đã activated=true | 409 Conflict | |
-| G3 | Barcode không tồn tại | barcode=0000000000 | 400 Bad Request | |
-| G4 | SĐT sai format | phone=12345 | 400 Validation Error | |
-| G5 | Dealer code sai | dealerCode=XXXXX | 404 Not Found | |
-| G6 | Kích hoạt không có dealer | dealerCode omitted | 200, dealerPointsAfter=null | |
+### TC-A11: Logout – revoke token
+- **API**: `POST /auth/logout` (Auth header)
+- **Input**: `{ "refreshToken": "<valid>" }`
+- **Expected**: 200, sau đó refresh bằng token cũ → 401
 
 ---
 
-## H) Curl Examples (v2)
+## B) Barcode Management (STAFF/ADMIN)
 
-### H.1) OTP Authentication
+### TC-B01: Staff thêm barcode – thành công
+- **API**: `POST /barcodes` (Auth: staff01 JWT)
+- **Input**: `{ "code": "8936999001", "productSku": "P001" }`
+- **Expected**: 201, body chứa `barcode === "8936999001"`, `product.sku === "P001"`, `createdBy.username === "staff01"`
+- **DB verify**: BarcodeItem record có `status: "UNUSED"`, `createdById` = staff01's userId
 
-```bash
-# Request OTP
-curl -X POST http://localhost:3001/api/auth/otp/request \
-  -H "Content-Type: application/json" \
-  -d '{ "phone": "0351234567" }'
+### TC-B02: Admin thêm barcode – thành công
+- **API**: `POST /barcodes` (Auth: admin JWT)
+- **Input**: `{ "code": "8936999002", "productSku": "P002" }`
+- **Expected**: 201, `createdBy.username === "admin"`
 
-# Verify OTP (as Customer)
-curl -X POST http://localhost:3001/api/auth/otp/verify \
-  -H "Content-Type: application/json" \
-  -d '{ "phone": "0351234567", "code": "123456", "role": "CUSTOMER" }'
+### TC-B03: Thêm barcode trùng – 409
+- **Precondition**: Barcode "8936000001" đã tồn tại
+- **API**: `POST /barcodes` (Auth: staff)
+- **Input**: `{ "code": "8936000001", "productSku": "P001" }`
+- **Expected**: 409, `"error": "BARCODE_ALREADY_EXISTS"`, `"message"` chứa "8936000001"
 
-# Verify OTP (as Dealer)
-curl -X POST http://localhost:3001/api/auth/otp/verify \
-  -H "Content-Type: application/json" \
-  -d '{ "phone": "0901234567", "code": "123456", "role": "DEALER" }'
+### TC-B04: Thêm barcode – product SKU không tồn tại – 404
+- **API**: `POST /barcodes` (Auth: staff)
+- **Input**: `{ "code": "8936999003", "productSku": "PXXX" }`
+- **Expected**: 404, `"Product with SKU \"PXXX\" not found"`
+
+### TC-B05: CUSTOMER thêm barcode – 403
+- **API**: `POST /barcodes` (Auth: customer JWT)
+- **Input**: `{ "code": "8936999004", "productSku": "P001" }`
+- **Expected**: 403, Forbidden
+
+### TC-B06: DEALER thêm barcode – 403
+- **API**: `POST /barcodes` (Auth: dealer JWT)
+- **Input**: `{ "code": "8936999005", "productSku": "P001" }`
+- **Expected**: 403, Forbidden
+
+### TC-B07: Batch thêm barcode – mixed results
+- **API**: `POST /barcodes/batch` (Auth: staff)
+- **Input**:
+```json
+{
+  "items": [
+    { "code": "8936999010", "productSku": "P001" },
+    { "code": "8936000001", "productSku": "P001" },
+    { "code": "8936999011", "productSku": "PXXX" }
+  ]
+}
 ```
+- **Expected**: 200, `total: 3`, `created: 1`, `errors: 2`
+  - `details[0].status === "created"`
+  - `details[1].status === "error"` (duplicate)
+  - `details[2].status === "error"` (product not found)
 
-### H.2) Refresh & Logout
+### TC-B08: GET barcodes – filter by status UNUSED
+- **API**: `GET /barcodes?status=UNUSED&take=5` (Auth: staff)
+- **Expected**: 200, tất cả items có `status === "UNUSED"`
 
-```bash
-# Refresh token
-curl -X POST http://localhost:3001/api/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{ "refreshToken": "TOKEN_FROM_LOGIN" }'
+### TC-B09: GET barcodes – filter by sku + search
+- **API**: `GET /barcodes?sku=P001&q=8936&skip=0&take=10` (Auth: admin)
+- **Expected**: 200, items chỉ có `product.sku === "P001"`, barcode chứa "8936"
 
-# Logout
-curl -X POST http://localhost:3001/api/auth/logout \
-  -H "Content-Type: application/json" \
-  -d '{ "refreshToken": "TOKEN_FROM_LOGIN" }'
+### TC-B10: GET barcodes – CUSTOMER → 403
+- **API**: `GET /barcodes` (Auth: customer)
+- **Expected**: 403, Forbidden
+
+---
+
+## C) Activations (STAFF/ADMIN only – v3 change)
+
+### TC-C01: Staff tạo activation – thành công
+- **API**: `POST /activations` (Auth: staff JWT)
+- **Input**:
+```json
+{
+  "barcode": "8936000021",
+  "customer": { "name": "Nguyễn Thị Hồng", "phone": "0351234567" },
+  "dealerCode": "DL001"
+}
 ```
+- **Expected**: 200, `product.name` not null, `customerPointsAfter >= 1`, `dealerPointsAfter >= 1`
+- **DB verify**: BarcodeItem `activated=true`, `status="USED"`, `usedById` = staff userId
 
-### H.3) Customer History
+### TC-C02: CUSTOMER tạo activation – 403
+- **API**: `POST /activations` (Auth: customer JWT)
+- **Input**: (same as above)
+- **Expected**: 403, Forbidden
 
-```bash
-# Get profile
-curl http://localhost:3001/api/me \
-  -H "Authorization: Bearer CUSTOMER_ACCESS_TOKEN"
+### TC-C03: DEALER tạo activation – 403
+- **API**: `POST /activations` (Auth: dealer JWT)
+- **Input**: (same as above)
+- **Expected**: 403, Forbidden
 
-# Get activation history (with filters)
-curl "http://localhost:3001/api/me/activations?take=10&search=Natri" \
-  -H "Authorization: Bearer CUSTOMER_ACCESS_TOKEN"
-```
+### TC-C04: Admin tạo activation – thành công
+- **API**: `POST /activations` (Auth: admin JWT)
+- **Expected**: 200 (same flow as staff)
 
-### H.4) Dealer Dashboard
+### TC-C05: Activation barcode đã kích hoạt – 409
+- **API**: `POST /activations` (Auth: staff JWT)
+- **Input**: barcode đã `activated=true`
+- **Expected**: 409, `"Barcode already activated"`
 
-```bash
-# Get dealer profile
-curl http://localhost:3001/api/dealer/me \
-  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
+### TC-C06: Activation barcode không tồn tại – 400
+- **API**: `POST /activations` (Auth: staff JWT)
+- **Input**: `{ "barcode": "0000000000", ... }`
+- **Expected**: 400, `"Barcode not found"`
 
-# Get dealer stats
-curl http://localhost:3001/api/dealer/me/stats \
-  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
+### TC-C07: GET /activations – chỉ STAFF/ADMIN truy cập
+- **API**: `GET /activations` (Auth: staff JWT)
+- **Expected**: 200, danh sách activations
+- **Also check**: customer JWT → 403, dealer JWT → 403
 
-# Get dealer activations
-curl "http://localhost:3001/api/dealer/me/activations?take=10" \
-  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
-```
+---
 
-### H.5) Staff/Admin Login
+## D) Self-service /me endpoints
 
-```bash
-# Admin login
-curl -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{ "username": "admin", "password": "admin123" }'
+### TC-D01: CUSTOMER xem profile
+- **API**: `GET /me` (Auth: customer JWT)
+- **Expected**: 200, body chứa `customer.name`, `customer.points`
 
-# Create activation (as staff)
-curl -X POST http://localhost:3001/api/activations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer STAFF_ACCESS_TOKEN" \
-  -d '{
-    "barcode": "8936000021",
-    "customer": { "name": "Nguyễn Thị Hồng", "phone": "0351234567" },
-    "dealerCode": "DL001"
-  }'
-```
+### TC-D02: DEALER xem profile
+- **API**: `GET /me` (Auth: dealer JWT)
+- **Expected**: 200, body chứa `dealer.name`, `dealer.shopName`, `dealer.dealerCode`, `dealer.points`
+
+### TC-D03: STAFF xem profile
+- **API**: `GET /me` (Auth: staff JWT)
+- **Expected**: 200, body chứa `fullName`, `role: "STAFF"`
+
+### TC-D04: CUSTOMER xem lịch sử kích hoạt
+- **API**: `GET /me/activations?skip=0&take=10` (Auth: customer JWT)
+- **Expected**: 200, `data[]` chỉ chứa activations của customer này
+
+### TC-D05: DEALER xem thống kê
+- **API**: `GET /me/dealer/stats` (Auth: dealer JWT)
+- **Expected**: 200, body chứa `totalActivations`, `activationsToday`, `uniqueCustomers`, `totalPoints`
+
+### TC-D06: DEALER xem danh sách activations
+- **API**: `GET /me/dealer/activations?skip=0&take=10` (Auth: dealer JWT)
+- **Expected**: 200, activations chỉ thuộc dealer này
+
+### TC-D07: CUSTOMER gọi /me/dealer/stats → 403
+- **API**: `GET /me/dealer/stats` (Auth: customer JWT)
+- **Expected**: 403, Forbidden
+
+### TC-D08: STAFF gọi /me/activations → 403
+- **API**: `GET /me/activations` (Auth: staff JWT)
+- **Expected**: 403 (endpoint chỉ cho CUSTOMER)
+
+---
+
+## E) ZMP UI Flows
+
+### TC-E01: Login màn hình – chọn CUSTOMER → OTP flow
+1. Mở `/login`
+2. Bấm chip "Khách hàng"
+3. Nhập SĐT → Gửi OTP → Nhập mã → Xác nhận
+4. **Expected**: Navigate tới `/customer-history`
+
+### TC-E02: Login – chọn STAFF → Password flow
+1. Mở `/login`
+2. Bấm chip "Nhân viên"
+3. Form chuyển sang input: Tên đăng nhập + Mật khẩu
+4. Nhập staff01/staff123 → Đăng nhập
+5. **Expected**: Navigate tới `/staff-home`
+
+### TC-E03: Staff Home – 2 nút
+1. Login staff → `/staff-home`
+2. Kiểm tra có 2 nút: "Tích điểm", "Quản lý Barcode"
+3. Bấm "Tích điểm" → Navigate `/earn-points`
+4. Quay lại, bấm "Quản lý Barcode" → Navigate `/barcode-manage`
+
+### TC-E04: Admin Home – 3 nút + link
+1. Login admin → `/admin-home`
+2. Kiểm tra có "Tích điểm", "Quản lý Barcode", card Dashboard
+3. Bấm "Dashboard Web" → mở link `http://localhost:5173`
+
+### TC-E05: Barcode Manage – quét camera
+1. Staff vào `/barcode-manage`
+2. Bấm "Quét Camera"
+3. Camera mở → quét barcode → giá trị tự điền vào ô input
+4. Chọn sản phẩm (dropdown) → bấm "Thêm Barcode"
+5. **Expected**: Thông báo thành công + barcode xuất hiện trong danh sách
+
+### TC-E06: Barcode Manage – nhập thủ công
+1. Bấm vào ô "Mã barcode" → nhập "8936999099"
+2. Chọn sản phẩm → bấm "Thêm Barcode"
+3. **Expected**: Thông báo thành công
+
+### TC-E07: Barcode Manage – duplicate → hiện lỗi
+1. Thêm barcode "8936000001" (đã tồn tại)
+2. **Expected**: Thông báo đỏ "Barcode đã tồn tại"
+
+### TC-E08: Barcode Manage – filter danh sách
+1. Trong danh sách barcode, chọn filter "Chưa dùng" (UNUSED)
+2. **Expected**: Chỉ hiện barcode status=UNUSED
+3. Nhập search "993"
+4. **Expected**: Filter theo barcode contains "993"
+
+### TC-E09: Customer History – chỉ xem không tạo
+1. Login customer → `/customer-history`
+2. Kiểm tra không có nút "Tạo kích hoạt" hay "Quét barcode"
+3. Chỉ hiện danh sách lịch sử kích hoạt của chính mình
+
+### TC-E10: Dealer Dashboard – chỉ xem không tạo
+1. Login dealer → `/dealer-dashboard`
+2. Kiểm tra không có nút "Tạo kích hoạt"
+3. Chỉ hiện thống kê + danh sách kích hoạt qua đại lý
+
+---
+
+## F) Regression Tests
+
+### TC-F01: Dealer Lookup – tìm đại lý (không cần login)
+- Nhập "DL001" → tìm thấy "Cửa hàng An Khang"
+
+### TC-F02: Scan barcode → tích điểm flow (staff)
+1. Staff login
+2. Vào "Tích điểm" → nhập mã đại lý → quét barcode → nhập KH
+3. **Expected**: Thành công, hiển thị kết quả
+
+### TC-F03: Token expired → refresh tự động
+1. Dùng app cho đến khi accessToken hết hạn (15 phút mock)
+2. Gọi API → interceptor tự refresh → request thành công
+
+### TC-F04: Admin Dashboard Web – CRUD hoạt động
+1. Mở `http://localhost:5173`
+2. Login admin
+3. Xem/tạo/sửa/xóa dealers, products, customers, activations
