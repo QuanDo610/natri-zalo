@@ -1,6 +1,7 @@
-// ===== Shared Types for Natri Loyalty System (v2) =====
+// ===== Shared Types for Natri Loyalty System (v3) =====
 
 export type UserRole = 'ADMIN' | 'STAFF' | 'DEALER' | 'CUSTOMER';
+export type BarcodeStatus = 'UNUSED' | 'USED';
 
 export interface DealerInfo {
   id: string;
@@ -117,4 +118,41 @@ export interface AppState {
   lastActivation: ActivationResponse | null;
   customerName: string;
   customerPhone: string;
+}
+
+// ── Barcode management (STAFF/ADMIN) ───────────────────────────
+export interface BarcodeItemInfo {
+  id: string;
+  barcode: string;
+  status: BarcodeStatus;
+  activated: boolean;
+  activatedAt: string | null;
+  createdAt: string;
+  product: { name: string; sku: string };
+  createdBy?: { username: string; fullName: string } | null;
+}
+
+export interface CreateBarcodeRequest {
+  code: string;
+  productSku: string;
+}
+
+export interface CreateBarcodeResponse {
+  id: string;
+  barcode: string;
+  product: { name: string; sku: string };
+  createdBy?: { username: string; fullName: string } | null;
+}
+
+export interface BatchBarcodeResult {
+  total: number;
+  created: number;
+  errors: number;
+  details: { code: string; status: 'created' | 'error'; error?: string }[];
+}
+
+export interface ProductItem {
+  id: string;
+  name: string;
+  sku: string;
 }

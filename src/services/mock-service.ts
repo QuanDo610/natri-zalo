@@ -1,4 +1,4 @@
-// ===== Mock Data & API for local development (v2 — with auth, OTP, history) =====
+// ===== Mock Data & API for local development (v3 — with auth, barcode mgmt, RBAC) =====
 
 import type {
   DealerInfo,
@@ -12,6 +12,11 @@ import type {
   PaginatedResponse,
   DealerStats,
   AuthUser,
+  BarcodeItemInfo,
+  CreateBarcodeRequest,
+  CreateBarcodeResponse,
+  BatchBarcodeResult,
+  ProductItem,
 } from '@/types';
 
 // ---- Dealers ----
@@ -378,6 +383,125 @@ export const mockApi = {
 
     const skip = params.skip || 0;
     const take = params.take || 20;
+    return {
+      data: filtered.slice(skip, skip + take),
+      total: filtered.length,
+      skip,
+      take,
+    };
+  },
+
+  // ── Products list ─────────────────────────
+  getProducts: async (): Promise<ProductItem[]> => {
+    await delay(200);
+    return products.map((p) => ({ id: p.id, name: p.name, sku: p.sku }));
+  },
+
+  // ── Barcode management (STAFF/ADMIN) ──────
+  createBarcode: async (data: CreateBarcodeRequest): Promise<CreateBarcodeResponse> => {
+    await delay(400);
+    if (!mockAuthUser || !['STAFF', 'ADMIN'].includes(mockAuthUser.role)) {
+      throw { statusCode: 403, message: 'Forbidden' };
+    }
+
+    const product = products.find((p) => p.sku === data.productSku);
+    if (!product) {
+      throw { statusCode: 404, message: `Product with SKU "${data.productSku}" not found` };
+    }
+
+    const existing = barcodeItems.find((b) => b.barcode === data.code);
+    if (existing) {
+      throw { statusCode: 409, message: `Barcode "${data.code}" already exists`, error: 'BARCODE_ALREADY_EXISTS' };
+    }
+
+    const newBarcode = {
+      barcode: data.code,
+      productId: product.id,
+      activated: false,
+      activatedAt: null,
+    };
+    barcodeItems.push(newBarcode);
+
+    return {
+      id: `bc_${Date.now()}`,
+      barcode: data.code,
+      product: { name: product.name, sku: product.sku },
+      createdBy: { username: mockAuthUser.username || 'staff', fullName: mockAuthUser.fullName || 'Staff' },
+    };
+  },
+
+  createBarcodeBatch: async (
+    items: { code: string; productSku: string }[],
+  ): Promise<BatchBarcodeResult> => {
+    await delay(600);
+    if (!mockAuthUser || !['STAFF', 'ADMIN'].includes(mockAuthUser.role)) {
+      throw { statusCode: 403, message: 'Forbidden' };
+    }
+
+    const results: BatchBarcodeResult['details'] = [];
+    for (const item of items) {
+      const product = products.find((p) => p.sku === item.productSku);
+      if (!product) {
+        results.push({ code: item.code, status: 'error', error: `Product "${item.productSku}" not found` });
+        continue;
+      }
+      if (barcodeItems.find((b) => b.barcode === item.code)) {
+        results.push({ code: item.code, status: 'error', error: 'BARCODE_ALREADY_EXISTS' });
+        continue;
+      }
+      barcodeItems.push({ barcode: item.code, productId: product.id, activated: false, activatedAt: null });
+      results.push({ code: item.code, status: 'created' });
+    }
+
+    return {
+      total: items.length,
+      created: results.filter((r) => r.status === 'created').length,
+      errors: results.filter((r) => r.status === 'error').length,
+      details: results,
+    };
+  },
+
+  getBarcodes: async (params: {
+    sku?: string;
+    status?: 'UNUSED' | 'USED';
+    q?: string;
+    skip?: number;
+    take?: number;
+  }): Promise<PaginatedResponse<BarcodeItemInfo>> => {
+    await delay(300);
+    if (!mockAuthUser || !['STAFF', 'ADMIN'].includes(mockAuthUser.role)) {
+      throw { statusCode: 403, message: 'Forbidden' };
+    }
+
+    let filtered = barcodeItems.map((b) => {
+      const product = products.find((p) => p.id === b.productId)!;
+      return {
+        id: `bc_${b.barcode}`,
+        barcode: b.barcode,
+        status: (b.activated ? 'USED' : 'UNUSED') as 'UNUSED' | 'USED',
+        activated: b.activated,
+        activatedAt: b.activatedAt,
+        createdAt: new Date(Date.now() - Math.random() * 7 * 86400000).toISOString(),
+        product: { name: product?.name || '', sku: product?.sku || '' },
+        createdBy: { username: 'staff01', fullName: 'Nhân viên 01' },
+      };
+    });
+
+    if (params.sku) {
+      filtered = filtered.filter((b) => b.product.sku === params.sku);
+    }
+    if (params.status) {
+      filtered = filtered.filter((b) => b.status === params.status);
+    }
+    if (params.q) {
+      filtered = filtered.filter((b) => b.barcode.includes(params.q!));
+    }
+
+    // Sort newest first
+    filtered.reverse();
+
+    const skip = params.skip || 0;
+    const take = params.take || 50;
     return {
       data: filtered.slice(skip, skip + take),
       total: filtered.length,

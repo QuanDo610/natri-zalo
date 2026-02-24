@@ -1,4 +1,4 @@
-// ===== API Client for Natri Loyalty System (v2 — with auth, OTP, history) =====
+// ===== API Client for Natri Loyalty System (v3 — with auth, barcode mgmt, RBAC) =====
 
 import type {
   DealerInfo,
@@ -11,6 +11,11 @@ import type {
   ActivationHistoryItem,
   PaginatedResponse,
   DealerStats,
+  BarcodeItemInfo,
+  CreateBarcodeRequest,
+  CreateBarcodeResponse,
+  BatchBarcodeResult,
+  ProductItem,
 } from '@/types';
 import { mockApi } from '@/services/mock-service';
 
@@ -100,10 +105,11 @@ const realApi = {
   }): Promise<PaginatedResponse<ActivationHistoryItem>> =>
     request('GET', `/me/activations${qs(params)}`),
 
-  // ── Dealer self-service ───────────────────
-  getDealerProfile: (): Promise<DealerInfo> => request('GET', '/dealer/me'),
+  // ── Dealer self-service (under /me/dealer/*) ──
+  getDealerProfile: (): Promise<DealerInfo> => request('GET', '/me'),
 
-  getDealerStats: (): Promise<DealerStats> => request('GET', '/dealer/me/stats'),
+  getDealerStats: (params?: { from?: string; to?: string }): Promise<DealerStats> =>
+    request('GET', `/me/dealer/stats${qs(params || {})}`),
 
   getDealerActivations: (params: {
     skip?: number;
@@ -112,7 +118,29 @@ const realApi = {
     dateTo?: string;
     search?: string;
   }): Promise<PaginatedResponse<ActivationHistoryItem>> =>
-    request('GET', `/dealer/me/activations${qs(params)}`),
+    request('GET', `/me/dealer/activations${qs(params)}`),
+
+  // ── Products ──────────────────────────────
+  getProducts: (): Promise<ProductItem[]> =>
+    request<{ data: ProductItem[] }>('GET', '/products?take=100').then((r) => r.data),
+
+  // ── Barcode management (STAFF/ADMIN) ──────
+  createBarcode: (data: CreateBarcodeRequest): Promise<CreateBarcodeResponse> =>
+    request('POST', '/barcodes', data),
+
+  createBarcodeBatch: (
+    items: { code: string; productSku: string }[],
+  ): Promise<BatchBarcodeResult> =>
+    request('POST', '/barcodes/batch', { items }),
+
+  getBarcodes: (params: {
+    sku?: string;
+    status?: 'UNUSED' | 'USED';
+    q?: string;
+    skip?: number;
+    take?: number;
+  }): Promise<PaginatedResponse<BarcodeItemInfo>> =>
+    request('GET', `/barcodes${qs(params)}`),
 };
 
 // ===== Exported API (switches between mock and real) =====
