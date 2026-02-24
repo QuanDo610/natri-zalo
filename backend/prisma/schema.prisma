@@ -27,8 +27,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  activations Activation[]
-  auditLogs   AuditLog[]
+  activations    Activation[]
+  auditLogs      AuditLog[]
+  barcodesCreated BarcodeItem[] @relation("BarcodesCreated")
+  barcodesUsed    BarcodeItem[] @relation("BarcodesUsed")
 
   @@map("users")
 }
@@ -114,19 +116,31 @@ model Product {
   @@map("products")
 }
 
+enum BarcodeStatus {
+  UNUSED
+  USED
+}
+
 model BarcodeItem {
-  id          String    @id @default(uuid())
-  barcode     String    @unique @db.VarChar(100)
+  id          String        @id @default(uuid())
+  barcode     String        @unique @db.VarChar(100)
   productId   String
-  activated   Boolean   @default(false)
+  status      BarcodeStatus @default(UNUSED)
+  activated   Boolean       @default(false)
   activatedAt DateTime?
-  createdAt   DateTime  @default(now())
+  createdById String?       // staff/admin who added this barcode
+  usedById    String?       // staff who used it in activation
+  createdAt   DateTime      @default(now())
 
   product    Product     @relation(fields: [productId], references: [id])
+  createdBy  User?       @relation("BarcodesCreated", fields: [createdById], references: [id])
+  usedBy     User?       @relation("BarcodesUsed", fields: [usedById], references: [id])
   activation Activation?
 
   @@index([barcode])
   @@index([productId])
+  @@index([status])
+  @@index([createdById])
   @@map("barcode_items")
 }
 
