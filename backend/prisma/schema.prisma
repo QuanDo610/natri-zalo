@@ -1,4 +1,4 @@
-// Prisma Schema for Natri Loyalty Points System
+// Prisma Schema for Natri Loyalty Points System (v2 — multi-role + OTP + refresh tokens)
 
 generator client {
   provider = "prisma-client-js"
@@ -12,8 +12,11 @@ datasource db {
 enum Role {
   ADMIN
   STAFF
+  DEALER
+  CUSTOMER
 }
 
+// ── Staff / Admin users (username+password login) ──────────────────
 model User {
   id        String   @id @default(uuid())
   username  String   @unique @db.VarChar(50)
@@ -30,6 +33,55 @@ model User {
   @@map("users")
 }
 
+// ── Unified account for Customer / Dealer (OTP login) ──────────────
+model UserAccount {
+  id         String   @id @default(uuid())
+  phone      String   @unique @db.VarChar(15)
+  role       Role     // CUSTOMER or DEALER
+  customerId String?  @unique
+  dealerId   String?  @unique
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  dealer        Dealer?        @relation(fields: [dealerId], references: [id])
+  refreshTokens RefreshToken[]
+
+  @@index([phone])
+  @@map("user_accounts")
+}
+
+// ── Refresh tokens ─────────────────────────────────────────────────
+model RefreshToken {
+  id            String   @id @default(uuid())
+  token         String   @unique @db.VarChar(500)
+  userAccountId String?
+  userId        String?  // for staff/admin users
+  expiresAt     DateTime
+  revoked       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  userAccount UserAccount? @relation(fields: [userAccountId], references: [id])
+
+  @@index([token])
+  @@index([userAccountId])
+  @@map("refresh_tokens")
+}
+
+// ── OTP codes ──────────────────────────────────────────────────────
+model OtpCode {
+  id        String   @id @default(uuid())
+  phone     String   @db.VarChar(15)
+  code      String   @db.VarChar(6)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, code])
+  @@map("otp_codes")
+}
+
 model Dealer {
   id        String   @id @default(uuid())
   code      String   @unique @db.VarChar(20)
@@ -43,6 +95,7 @@ model Dealer {
   updatedAt DateTime @updatedAt
 
   activations Activation[]
+  userAccount UserAccount?
 
   @@index([code])
   @@map("dealers")
@@ -86,6 +139,7 @@ model Customer {
   updatedAt DateTime @updatedAt
 
   activations Activation[]
+  userAccount UserAccount?
 
   @@index([phone])
   @@map("customers")
@@ -96,7 +150,7 @@ model Activation {
   barcodeItemId String   @unique
   customerId    String
   dealerId      String?
-  staffId       String
+  staffId       String?
   productId     String
   pointsAwarded Int      @default(1)
   createdAt     DateTime @default(now())
@@ -104,11 +158,11 @@ model Activation {
   barcodeItem BarcodeItem @relation(fields: [barcodeItemId], references: [id])
   customer    Customer    @relation(fields: [customerId], references: [id])
   dealer      Dealer?     @relation(fields: [dealerId], references: [id])
-  staff       User        @relation(fields: [staffId], references: [id])
+  staff       User?       @relation(fields: [staffId], references: [id])
   product     Product     @relation(fields: [productId], references: [id])
 
-  @@index([customerId])
-  @@index([dealerId])
+  @@index([customerId, createdAt])
+  @@index([dealerId, createdAt])
   @@index([staffId])
   @@index([createdAt])
   @@map("activations")
@@ -126,6 +180,7 @@ model AuditLog {
   user User? @relation(fields: [userId], references: [id])
 
   @@index([entity, entityId])
+  @@index([userId])
   @@index([createdAt])
   @@map("audit_logs")
 }
