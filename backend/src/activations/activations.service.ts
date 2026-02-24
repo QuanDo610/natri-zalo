@@ -24,7 +24,7 @@ export class ActivationsService {
    * 7. Create activation record
    * 8. Write audit log
    */
-  async createActivation(dto: CreateActivationDto, staffId: string) {
+  async createActivation(dto: CreateActivationDto, staffId?: string | null) {
     return this.prisma.$transaction(async (tx) => {
       // 1. Find barcode item
       const barcodeItem = await tx.barcodeItem.findUnique({
@@ -97,7 +97,7 @@ export class ActivationsService {
           barcodeItemId: barcodeItem.id,
           customerId: customer.id,
           dealerId: dealer?.id || null,
-          staffId,
+          staffId: staffId || null,
           productId: barcodeItem.productId,
           pointsAwarded: 1,
         },
@@ -109,7 +109,7 @@ export class ActivationsService {
           action: 'ACTIVATION_CREATED',
           entity: 'Activation',
           entityId: activation.id,
-          userId: staffId,
+          userId: staffId || null,
           metadata: {
             barcode: dto.barcode,
             customerPhone: dto.customer.phone,

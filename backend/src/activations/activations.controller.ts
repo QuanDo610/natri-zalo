@@ -20,7 +20,9 @@ export class ActivationsController {
   @Post()
   @UseGuards(JwtAuthGuard)
   async create(@Body() dto: CreateActivationDto, @Request() req) {
-    return this.activationsService.createActivation(dto, req.user.id);
+    // staffId only set for ADMIN/STAFF roles; customers/dealers pass null
+    const staffId = ['ADMIN', 'STAFF'].includes(req.user.role) ? req.user.id : null;
+    return this.activationsService.createActivation(dto, staffId);
   }
 
   @Get()
