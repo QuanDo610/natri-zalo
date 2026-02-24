@@ -1,209 +1,161 @@
-# Test Cases & cURL Examples
+# Test Cases — Hệ thống Tích điểm Natri (v2)
 
-## A) Bảng Test Cases
+## A) Test Cases — OTP Authentication
 
-| #  | Kịch bản                           | Input                                                                                   | Expected Status | Expected Response                                                     |
-|----|-------------------------------------|-----------------------------------------------------------------------------------------|----------------|-----------------------------------------------------------------------|
-| 1  | Happy path + dealer                 | barcode: `8936000021`, phone: `0351234567`, name: `Nguyễn Thị Hồng`, dealerCode: `DL001` | 201            | `activationId`, product: Natri Ion 500ml, customerPoints +1, dealerPoints +1 |
-| 2  | Happy path, no dealer               | barcode: `8936000022`, phone: `0562345678`, name: `Trần Văn Khoa`                        | 201            | `activationId`, product info, dealerPointsAfter: null                 |
-| 3  | Duplicate barcode                   | barcode: `8936000001` (đã activated)                                                     | 409            | `"Barcode has already been activated"`                                |
-| 4  | Barcode not found                   | barcode: `9999999999`                                                                    | 400            | `"Barcode not found"`                                                 |
-| 5  | Dealer not found                    | dealerCode: `DL999`                                                                      | 404            | `"Dealer not found"`                                                  |
-| 6  | Invalid phone format                | phone: `012345`                                                                          | 400            | Validation error: phone                                               |
-| 7  | Empty barcode                       | barcode: ``                                                                               | 400            | Validation error: barcode                                             |
-| 8  | Name too short                      | name: `A`                                                                                 | 400            | Validation error: name min 2                                          |
-| 9  | Invalid dealer code format          | dealerCode: `abc`                                                                         | 400            | Validation error: dealer code format                                  |
-| 10 | New customer (upsert)               | phone mới: `0701111111`, name: `Khách Mới`                                               | 201            | Customer created, points = 1                                          |
-| 11 | Existing customer (upsert)          | phone đã tồn tại: `0351234567`, name mới                                                 | 201            | Customer updated, points incremented                                  |
-| 12 | Concurrent same barcode             | 2 requests cùng barcode `8936000023`                                                     | 1×201, 1×409   | DB unique constraint prevents double activation                       |
-| 13 | Lookup valid dealer                 | GET /dealers/lookup?code=DL001                                                            | 200            | Dealer info with points                                               |
-| 14 | Lookup invalid dealer               | GET /dealers/lookup?code=DL999                                                            | 404            | Not found                                                             |
-| 15 | Product by valid barcode            | GET /products/by-barcode/8936000021                                                       | 200            | Product info, activated: false                                        |
-| 16 | Product by used barcode             | GET /products/by-barcode/8936000001                                                       | 200            | Product info, activated: true                                         |
-| 17 | Auth login success                  | POST /auth/login {username: admin, password: admin123}                                    | 200            | JWT token + user info                                                 |
-| 18 | Auth login fail                     | POST /auth/login {username: admin, password: wrong}                                       | 401            | Invalid credentials                                                   |
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| A1 | Request OTP — SĐT hợp lệ | `POST /auth/otp/request` phone=0351234567 | 200, `{ message: "OTP sent", expiresIn: 300 }` | |
+| A2 | Request OTP — SĐT sai format | phone=12345 | 400, "Invalid Vietnamese phone number" | |
+| A3 | Verify OTP — đúng mã | phone+code+role=CUSTOMER | 200, accessToken + refreshToken + user | |
+| A4 | Verify OTP — sai mã | code=999999 | 401, "Invalid or expired OTP" | |
+| A5 | Verify OTP — hết hạn | code đúng nhưng > 5 phút | 401, "Invalid or expired OTP" | |
+| A6 | Verify OTP — tự tạo Customer mới | phone chưa có trong DB | 200, user.role=CUSTOMER, auto-create | |
+| A7 | Verify OTP — Dealer không tồn tại | role=DEALER, phone không khớp dealer | 400, "No dealer found..." | |
+| A8 | Verify OTP — Dealer hợp lệ | role=DEALER, phone=0901234567 (DL001) | 200, user.dealerId set, dealer info | |
 
-## B) cURL Examples
+## B) Test Cases — Refresh Token
 
-### 1. Login (get JWT token)
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| B1 | Refresh — token hợp lệ | `POST /auth/refresh` refreshToken=valid | 200, new accessToken + refreshToken | |
+| B2 | Refresh — token đã revoke | refreshToken=revoked | 401, "Invalid or expired refresh token" | |
+| B3 | Refresh — token hết hạn | refreshToken=expired | 401 | |
+| B4 | Logout — revoke token | `POST /auth/logout` refreshToken=valid | 200, "Logged out" | |
+| B5 | Refresh sau logout | refreshToken đã logout | 401 | |
+
+## C) Test Cases — Staff/Admin Login
+
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| C1 | Login admin đúng | admin / admin123 | 200, role=ADMIN, accessToken | |
+| C2 | Login staff đúng | staff01 / staff123 | 200, role=STAFF, accessToken | |
+| C3 | Login sai password | admin / wrong | 401, "Invalid credentials" | |
+| C4 | Login user không tồn tại | unknown / 123 | 401 | |
+
+## D) Test Cases — Customer History (GET /me/activations)
+
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| D1 | Xem lịch sử — customer login | Bearer token (CUSTOMER) | 200, danh sách activations của customer | |
+| D2 | Lọc theo thời gian — 7 ngày | dateFrom=7d ago | 200, chỉ items trong 7 ngày | |
+| D3 | Lọc theo từ khóa | search=Natri | 200, chỉ items có "Natri" | |
+| D4 | Phân trang | skip=0, take=5 | 200, max 5 items, total đúng | |
+| D5 | Customer xem data người khác | token customer A, query customer B | 403 hoặc chỉ trả data của A | |
+| D6 | DEALER gọi /me/activations | Bearer token (DEALER) | 403, chỉ CUSTOMER được phép | |
+| D7 | Không có token | No Authorization header | 401 | |
+
+## E) Test Cases — Dealer Dashboard (GET /dealer/me/*)
+
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| E1 | GET /dealer/me — profile | Bearer (DEALER) | 200, dealer info (code, name, points) | |
+| E2 | GET /dealer/me/stats | Bearer (DEALER) | 200, totalActivations, uniqueCustomers, activationsToday/Week/Month | |
+| E3 | GET /dealer/me/activations | Bearer (DEALER) | 200, danh sách activations qua đại lý này | |
+| E4 | Tìm kiếm activations | search=Hồng | 200, chỉ items có KH "Hồng" | |
+| E5 | CUSTOMER gọi /dealer/me | Bearer (CUSTOMER) | 403, chỉ DEALER được phép | |
+| E6 | ADMIN gọi /dealer/me | Bearer (ADMIN) | 403, không phải DEALER | |
+
+## F) Test Cases — RBAC & Ownership
+
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| F1 | CUSTOMER tạo activation | POST /activations, Bearer (CUSTOMER) | 200, staffId=null | |
+| F2 | DEALER tạo activation | POST /activations, Bearer (DEALER) | 200, staffId=null | |
+| F3 | STAFF tạo activation | POST /activations, Bearer (STAFF) | 200, staffId=staff.id | |
+| F4 | CUSTOMER gọi GET /dealers (admin) | Bearer (CUSTOMER) | 403 | |
+| F5 | DEALER gọi GET /activations/stats | Bearer (DEALER) | 403, chỉ ADMIN | |
+
+## G) Test Cases — Kích hoạt (giữ nguyên từ v1)
+
+| # | Tên test case | Input | Expected | Status |
+|---|---------------|-------|----------|--------|
+| G1 | Kích hoạt barcode hợp lệ + dealer | barcode=8936000021, DL001, 0351234567 | 200, +1 điểm KH + ĐL | |
+| G2 | Barcode đã kích hoạt (trùng) | barcode đã activated=true | 409 Conflict | |
+| G3 | Barcode không tồn tại | barcode=0000000000 | 400 Bad Request | |
+| G4 | SĐT sai format | phone=12345 | 400 Validation Error | |
+| G5 | Dealer code sai | dealerCode=XXXXX | 404 Not Found | |
+| G6 | Kích hoạt không có dealer | dealerCode omitted | 200, dealerPointsAfter=null | |
+
+---
+
+## H) Curl Examples (v2)
+
+### H.1) OTP Authentication
+
 ```bash
+# Request OTP
+curl -X POST http://localhost:3001/api/auth/otp/request \
+  -H "Content-Type: application/json" \
+  -d '{ "phone": "0351234567" }'
+
+# Verify OTP (as Customer)
+curl -X POST http://localhost:3001/api/auth/otp/verify \
+  -H "Content-Type: application/json" \
+  -d '{ "phone": "0351234567", "code": "123456", "role": "CUSTOMER" }'
+
+# Verify OTP (as Dealer)
+curl -X POST http://localhost:3001/api/auth/otp/verify \
+  -H "Content-Type: application/json" \
+  -d '{ "phone": "0901234567", "code": "123456", "role": "DEALER" }'
+```
+
+### H.2) Refresh & Logout
+
+```bash
+# Refresh token
+curl -X POST http://localhost:3001/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{ "refreshToken": "TOKEN_FROM_LOGIN" }'
+
+# Logout
+curl -X POST http://localhost:3001/api/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{ "refreshToken": "TOKEN_FROM_LOGIN" }'
+```
+
+### H.3) Customer History
+
+```bash
+# Get profile
+curl http://localhost:3001/api/me \
+  -H "Authorization: Bearer CUSTOMER_ACCESS_TOKEN"
+
+# Get activation history (with filters)
+curl "http://localhost:3001/api/me/activations?take=10&search=Natri" \
+  -H "Authorization: Bearer CUSTOMER_ACCESS_TOKEN"
+```
+
+### H.4) Dealer Dashboard
+
+```bash
+# Get dealer profile
+curl http://localhost:3001/api/dealer/me \
+  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
+
+# Get dealer stats
+curl http://localhost:3001/api/dealer/me/stats \
+  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
+
+# Get dealer activations
+curl "http://localhost:3001/api/dealer/me/activations?take=10" \
+  -H "Authorization: Bearer DEALER_ACCESS_TOKEN"
+```
+
+### H.5) Staff/Admin Login
+
+```bash
+# Admin login
 curl -X POST http://localhost:3001/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
-```
-Response:
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "user": { "id": "...", "username": "admin", "fullName": "Admin Natri", "role": "ADMIN" }
-}
-```
+  -d '{ "username": "admin", "password": "admin123" }'
 
-### 2. Lookup Dealer
-```bash
-curl "http://localhost:3001/api/dealers/lookup?code=DL001"
-```
-Response:
-```json
-{
-  "id": "uuid...",
-  "code": "DL001",
-  "name": "Nguyễn Văn An",
-  "phone": "0901234567",
-  "shopName": "Cửa hàng An Khang",
-  "address": "123 Lê Lợi, Q1, HCM",
-  "points": 5
-}
-```
-
-### 3. Product by Barcode
-```bash
-curl "http://localhost:3001/api/products/by-barcode/8936000021"
-```
-Response:
-```json
-{
-  "id": "uuid...",
-  "name": "Natri Ion 500ml",
-  "sku": "P001",
-  "barcode": "8936000021",
-  "activated": false,
-  "activatedAt": null
-}
-```
-
-### 4. Create Activation (Happy path + dealer)
-```bash
-TOKEN="eyJhbGciOiJIUzI1NiIs..."
-
+# Create activation (as staff)
 curl -X POST http://localhost:3001/api/activations \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer STAFF_ACCESS_TOKEN" \
   -d '{
     "barcode": "8936000021",
     "customer": { "name": "Nguyễn Thị Hồng", "phone": "0351234567" },
     "dealerCode": "DL001"
   }'
-```
-Response (201):
-```json
-{
-  "activationId": "uuid...",
-  "product": { "id": "uuid...", "name": "Natri Ion 500ml", "sku": "P001" },
-  "customerPointsAfter": 4,
-  "dealerPointsAfter": 6
-}
-```
-
-### 5. Create Activation (No dealer)
-```bash
-curl -X POST http://localhost:3001/api/activations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "barcode": "8936000022",
-    "customer": { "name": "Trần Văn Khoa", "phone": "0562345678" }
-  }'
-```
-Response (201):
-```json
-{
-  "activationId": "uuid...",
-  "product": { "id": "uuid...", "name": "Natri Ion 1.5L", "sku": "P002" },
-  "customerPointsAfter": 3,
-  "dealerPointsAfter": null
-}
-```
-
-### 6. Duplicate Barcode (Error)
-```bash
-curl -X POST http://localhost:3001/api/activations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "barcode": "8936000001",
-    "customer": { "name": "Test", "phone": "0351234567" }
-  }'
-```
-Response (409):
-```json
-{
-  "statusCode": 409,
-  "message": "Barcode \"8936000001\" has already been activated"
-}
-```
-
-### 7. Barcode Not Found
-```bash
-curl -X POST http://localhost:3001/api/activations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "barcode": "9999999999",
-    "customer": { "name": "Test", "phone": "0351234567" }
-  }'
-```
-Response (400):
-```json
-{
-  "statusCode": 400,
-  "message": "Barcode \"9999999999\" not found"
-}
-```
-
-### 8. Dealer Not Found
-```bash
-curl -X POST http://localhost:3001/api/activations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "barcode": "8936000023",
-    "customer": { "name": "Test", "phone": "0351234567" },
-    "dealerCode": "DL999"
-  }'
-```
-Response (404):
-```json
-{
-  "statusCode": 404,
-  "message": "Dealer with code \"DL999\" not found"
-}
-```
-
-### 9. Upsert Customer
-```bash
-curl -X POST http://localhost:3001/api/customers/upsert \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Khách mới","phone":"0701111111"}'
-```
-
-### 10. Get Customer by Phone
-```bash
-curl "http://localhost:3001/api/customers/by-phone/0351234567"
-```
-
-### 11. Get Activation Stats (Admin only)
-```bash
-curl "http://localhost:3001/api/activations/stats" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### 12. List All Activations
-```bash
-curl "http://localhost:3001/api/activations?skip=0&take=20" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### 13. List Dealers (Admin)
-```bash
-curl "http://localhost:3001/api/dealers" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### 14. Import Barcodes (Admin)
-```bash
-curl -X POST "http://localhost:3001/api/products/PRODUCT_UUID/import-barcodes" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"barcodes":["8936001001","8936001002","8936001003"]}'
 ```
