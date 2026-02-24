@@ -1,4 +1,6 @@
-// ===== Shared Types for Natri Loyalty System =====
+// ===== Shared Types for Natri Loyalty System (v2) =====
+
+export type UserRole = 'ADMIN' | 'STAFF' | 'DEALER' | 'CUSTOMER';
 
 export interface DealerInfo {
   id: string;
@@ -49,6 +51,64 @@ export interface ActivationResponse {
 export interface ApiError {
   statusCode: number;
   message: string;
+}
+
+// ── Auth types ─────────────────────────────────────────────────
+export interface AuthUser {
+  id: string;
+  phone?: string;
+  username?: string;
+  fullName?: string;
+  role: UserRole;
+  customerId?: string;
+  dealerId?: string;
+  customer?: CustomerInfo;
+  dealer?: DealerInfo;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthUser;
+}
+
+export interface OtpRequestResponse {
+  message: string;
+  expiresIn: number;
+}
+
+// ── Activation history (for customer / dealer) ─────────────────
+export interface ActivationHistoryItem {
+  id: string;
+  pointsAwarded: number;
+  createdAt: string;
+  product: { name: string; sku: string };
+  dealer?: { code: string; name: string; shopName: string } | null;
+  customer?: { name: string; phone: string } | null;
+  barcodeItem: { barcode: string };
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  skip: number;
+  take: number;
+}
+
+// ── Dealer dashboard stats ─────────────────────────────────────
+export interface DealerStats {
+  dealer: {
+    points: number;
+    code: string;
+    name: string;
+    shopName: string;
+  };
+  totalActivations: number;
+  activationsToday: number;
+  activationsWeek: number;
+  activationsMonth: number;
+  uniqueCustomers: number;
+  totalPoints: number;
 }
 
 export interface AppState {

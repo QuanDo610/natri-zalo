@@ -1,4 +1,4 @@
-// ===== Mock Data for local development =====
+// ===== Mock Data & API for local development (v2 — with auth, OTP, history) =====
 
 import type {
   DealerInfo,
@@ -6,6 +6,12 @@ import type {
   ActivationRequest,
   ActivationResponse,
   CustomerInfo,
+  LoginResponse,
+  OtpRequestResponse,
+  ActivationHistoryItem,
+  PaginatedResponse,
+  DealerStats,
+  AuthUser,
 } from '@/types';
 
 // ---- Dealers ----
@@ -27,21 +33,21 @@ const products = [
 ];
 
 // ---- Barcodes (50) ----
-interface BarcodeItem {
+interface BarcodeItemMock {
   barcode: string;
   productId: string;
   activated: boolean;
   activatedAt: string | null;
 }
 
-const barcodeItems: BarcodeItem[] = [];
+const barcodeItems: BarcodeItemMock[] = [];
 for (let i = 1; i <= 50; i++) {
   const barcode = `893600${String(i).padStart(4, '0')}`;
   const productIndex = (i - 1) % products.length;
   barcodeItems.push({
     barcode,
     productId: products[productIndex].id,
-    activated: i <= 20, // first 20 already used
+    activated: i <= 20,
     activatedAt: i <= 20 ? new Date(Date.now() - Math.random() * 14 * 86400000).toISOString() : null,
   });
 }
@@ -60,11 +66,37 @@ const customers: (CustomerInfo & { activations: string[] })[] = [
   { id: 'c10', name: 'Mai Thị Trang',      phone: '0850123456', points: 2, activations: [] },
 ];
 
+// ---- Mock activation history (seeded for first 20 barcodes) ----
+interface MockActivation extends ActivationHistoryItem {}
+const activationHistory: MockActivation[] = [];
+for (let i = 0; i < 20; i++) {
+  const bc = barcodeItems[i];
+  const product = products.find((p) => p.id === bc.productId)!;
+  const customer = customers[i % customers.length];
+  const dealer = i % 3 === 0 ? null : dealers[i % dealers.length];
+  activationHistory.push({
+    id: `act_seed_${i + 1}`,
+    pointsAwarded: 1,
+    createdAt: bc.activatedAt || new Date().toISOString(),
+    product: { name: product.name, sku: product.sku },
+    dealer: dealer ? { code: dealer.code, name: dealer.name, shopName: dealer.shopName } : null,
+    customer: { name: customer.name, phone: customer.phone },
+    barcodeItem: { barcode: bc.barcode },
+  });
+}
+
+// ---- OTP store (mock) ----
+const otpStore: Record<string, { code: string; expiresAt: number }> = {};
+
+// ---- Auth state (mock) ----
+let mockAuthUser: AuthUser | null = null;
+
 // ---- Helper: simulate delay ----
 const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 
 // ===== Mock API implementation =====
 export const mockApi = {
+  // ── Public endpoints ──────────────────────
   lookupDealer: async (code: string): Promise<DealerInfo> => {
     await delay(300);
     const dealer = dealers.find((d) => d.code === code);
@@ -93,66 +125,48 @@ export const mockApi = {
 
   createActivation: async (data: ActivationRequest): Promise<ActivationResponse> => {
     await delay(600);
-
-    // Validate barcode exists
     const item = barcodeItems.find((b) => b.barcode === data.barcode);
-    if (!item) {
-      throw { statusCode: 400, message: `Barcode "${data.barcode}" not found` };
-    }
+    if (!item) throw { statusCode: 400, message: `Barcode "${data.barcode}" not found` };
+    if (item.activated) throw { statusCode: 409, message: `Barcode "${data.barcode}" has already been activated` };
 
-    // Check duplicate
-    if (item.activated) {
-      throw { statusCode: 409, message: `Barcode "${data.barcode}" has already been activated` };
-    }
-
-    // Validate dealer if provided
     let dealer: DealerInfo | undefined;
     if (data.dealerCode) {
       dealer = dealers.find((d) => d.code === data.dealerCode);
-      if (!dealer) {
-        throw { statusCode: 404, message: `Dealer with code "${data.dealerCode}" not found` };
-      }
+      if (!dealer) throw { statusCode: 404, message: `Dealer with code "${data.dealerCode}" not found` };
     }
-
-    // Validate phone format
     if (!/^0(3|5|7|8|9)\d{8}$/.test(data.customer.phone)) {
       throw { statusCode: 400, message: 'Invalid Vietnamese phone number' };
     }
 
-    // Process activation
     item.activated = true;
     item.activatedAt = new Date().toISOString();
 
-    // Upsert customer
     let customer = customers.find((c) => c.phone === data.customer.phone);
     if (customer) {
       customer.name = data.customer.name;
       customer.points += 1;
     } else {
-      customer = {
-        id: `c${customers.length + 1}`,
-        name: data.customer.name,
-        phone: data.customer.phone,
-        points: 1,
-        activations: [],
-      };
+      customer = { id: `c${customers.length + 1}`, name: data.customer.name, phone: data.customer.phone, points: 1, activations: [] };
       customers.push(customer);
     }
-
-    // Update dealer points
-    if (dealer) {
-      dealer.points += 1;
-    }
+    if (dealer) dealer.points += 1;
 
     const product = products.find((p) => p.id === item.productId)!;
 
+    // Add to history
+    activationHistory.unshift({
+      id: `act_${Date.now()}`,
+      pointsAwarded: 1,
+      createdAt: item.activatedAt,
+      product: { name: product.name, sku: product.sku },
+      dealer: dealer ? { code: dealer.code, name: dealer.name, shopName: dealer.shopName } : null,
+      customer: { name: customer.name, phone: customer.phone },
+      barcodeItem: { barcode: item.barcode },
+    });
+
     return {
       activationId: `act_${Date.now()}`,
-      product: {
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-      },
+      product: { id: product.id, name: product.name, sku: product.sku },
       customerPointsAfter: customer.points,
       dealerPointsAfter: dealer?.points ?? null,
     };
@@ -161,9 +175,214 @@ export const mockApi = {
   getCustomerByPhone: async (phone: string): Promise<CustomerInfo> => {
     await delay(300);
     const customer = customers.find((c) => c.phone === phone);
-    if (!customer) {
-      throw { statusCode: 404, message: `Customer with phone "${phone}" not found` };
-    }
+    if (!customer) throw { statusCode: 404, message: `Customer with phone "${phone}" not found` };
     return { id: customer.id, name: customer.name, phone: customer.phone, points: customer.points };
+  },
+
+  // ── Auth: OTP ─────────────────────────────
+  requestOtp: async (phone: string): Promise<OtpRequestResponse> => {
+    await delay(300);
+    if (!/^0(3|5|7|8|9)\d{8}$/.test(phone)) {
+      throw { statusCode: 400, message: 'Invalid Vietnamese phone number' };
+    }
+    const code = '123456'; // Mock: always 123456
+    otpStore[phone] = { code, expiresAt: Date.now() + 5 * 60 * 1000 };
+    console.log(`[MOCK OTP] Phone: ${phone}, Code: ${code}`);
+    return { message: 'OTP sent', expiresIn: 300 };
+  },
+
+  verifyOtp: async (phone: string, code: string, role: 'CUSTOMER' | 'DEALER'): Promise<LoginResponse> => {
+    await delay(400);
+    const stored = otpStore[phone];
+    if (!stored || stored.code !== code || stored.expiresAt < Date.now()) {
+      throw { statusCode: 401, message: 'Invalid or expired OTP' };
+    }
+    delete otpStore[phone];
+
+    let user: AuthUser;
+
+    if (role === 'CUSTOMER') {
+      let customer = customers.find((c) => c.phone === phone);
+      if (!customer) {
+        customer = { id: `c${customers.length + 1}`, name: phone, phone, points: 0, activations: [] };
+        customers.push(customer);
+      }
+      user = {
+        id: `ua_${phone}`,
+        phone,
+        role: 'CUSTOMER',
+        customerId: customer.id,
+        customer: { id: customer.id, name: customer.name, phone: customer.phone, points: customer.points },
+      };
+    } else {
+      const dealer = dealers.find((d) => d.phone === phone);
+      if (!dealer) throw { statusCode: 400, message: 'No dealer found with this phone number. Contact admin to register.' };
+      user = {
+        id: `ua_${phone}`,
+        phone,
+        role: 'DEALER',
+        dealerId: dealer.id,
+        dealer,
+      };
+    }
+
+    mockAuthUser = user;
+
+    return {
+      accessToken: `mock_access_${Date.now()}`,
+      refreshToken: `mock_refresh_${Date.now()}`,
+      user,
+    };
+  },
+
+  refreshToken: async (refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> => {
+    await delay(200);
+    return {
+      accessToken: `mock_access_${Date.now()}`,
+      refreshToken: `mock_refresh_${Date.now()}`,
+    };
+  },
+
+  logout: async (refreshToken: string): Promise<{ message: string }> => {
+    await delay(200);
+    mockAuthUser = null;
+    return { message: 'Logged out' };
+  },
+
+  loginStaff: async (username: string, password: string): Promise<LoginResponse> => {
+    await delay(400);
+    if (username === 'admin' && password === 'admin123') {
+      const user: AuthUser = { id: 'u1', username: 'admin', fullName: 'Admin Natri', role: 'ADMIN' };
+      mockAuthUser = user;
+      return { accessToken: `mock_access_${Date.now()}`, refreshToken: `mock_refresh_${Date.now()}`, user };
+    }
+    if (username === 'staff01' && password === 'staff123') {
+      const user: AuthUser = { id: 'u2', username: 'staff01', fullName: 'Nhân viên 01', role: 'STAFF' };
+      mockAuthUser = user;
+      return { accessToken: `mock_access_${Date.now()}`, refreshToken: `mock_refresh_${Date.now()}`, user };
+    }
+    throw { statusCode: 401, message: 'Invalid credentials' };
+  },
+
+  // ── Me (customer) ─────────────────────────
+  getProfile: async (): Promise<any> => {
+    await delay(300);
+    if (!mockAuthUser) throw { statusCode: 401, message: 'Unauthorized' };
+    return { role: mockAuthUser.role, customer: mockAuthUser.customer, dealer: mockAuthUser.dealer };
+  },
+
+  getMyActivations: async (params: {
+    skip?: number;
+    take?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }): Promise<PaginatedResponse<ActivationHistoryItem>> => {
+    await delay(400);
+    if (!mockAuthUser || !mockAuthUser.customerId) throw { statusCode: 401, message: 'Unauthorized' };
+
+    const customer = customers.find((c) => c.id === mockAuthUser!.customerId);
+    let filtered = activationHistory.filter((a) => a.customer?.phone === customer?.phone);
+
+    if (params.dateFrom) {
+      const from = new Date(params.dateFrom).getTime();
+      filtered = filtered.filter((a) => new Date(a.createdAt).getTime() >= from);
+    }
+    if (params.dateTo) {
+      const to = new Date(params.dateTo).getTime();
+      filtered = filtered.filter((a) => new Date(a.createdAt).getTime() <= to);
+    }
+    if (params.search) {
+      const s = params.search.toLowerCase();
+      filtered = filtered.filter(
+        (a) =>
+          a.product.name.toLowerCase().includes(s) ||
+          a.barcodeItem.barcode.includes(s),
+      );
+    }
+
+    const skip = params.skip || 0;
+    const take = params.take || 20;
+    return {
+      data: filtered.slice(skip, skip + take),
+      total: filtered.length,
+      skip,
+      take,
+    };
+  },
+
+  // ── Dealer self-service ───────────────────
+  getDealerProfile: async (): Promise<DealerInfo> => {
+    await delay(300);
+    if (!mockAuthUser || !mockAuthUser.dealerId) throw { statusCode: 401, message: 'Unauthorized' };
+    const dealer = dealers.find((d) => d.id === mockAuthUser!.dealerId);
+    if (!dealer) throw { statusCode: 404, message: 'Dealer not found' };
+    return { ...dealer };
+  },
+
+  getDealerStats: async (): Promise<DealerStats> => {
+    await delay(400);
+    if (!mockAuthUser || !mockAuthUser.dealerId) throw { statusCode: 401, message: 'Unauthorized' };
+    const dealer = dealers.find((d) => d.id === mockAuthUser!.dealerId);
+    if (!dealer) throw { statusCode: 404, message: 'Dealer not found' };
+
+    const myActivations = activationHistory.filter(
+      (a) => a.dealer?.code === dealer.code,
+    );
+    const now = Date.now();
+    const dayMs = 86400000;
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+
+    return {
+      dealer: { points: dealer.points, code: dealer.code, name: dealer.name, shopName: dealer.shopName },
+      totalActivations: myActivations.length,
+      activationsToday: myActivations.filter((a) => new Date(a.createdAt).getTime() >= todayStart).length,
+      activationsWeek: myActivations.filter((a) => new Date(a.createdAt).getTime() >= now - 7 * dayMs).length,
+      activationsMonth: myActivations.filter((a) => new Date(a.createdAt).getTime() >= now - 30 * dayMs).length,
+      uniqueCustomers: new Set(myActivations.map((a) => a.customer?.phone)).size,
+      totalPoints: dealer.points,
+    };
+  },
+
+  getDealerActivations: async (params: {
+    skip?: number;
+    take?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }): Promise<PaginatedResponse<ActivationHistoryItem>> => {
+    await delay(400);
+    if (!mockAuthUser || !mockAuthUser.dealerId) throw { statusCode: 401, message: 'Unauthorized' };
+    const dealer = dealers.find((d) => d.id === mockAuthUser!.dealerId);
+    if (!dealer) throw { statusCode: 404, message: 'Dealer not found' };
+
+    let filtered = activationHistory.filter((a) => a.dealer?.code === dealer.code);
+
+    if (params.dateFrom) {
+      const from = new Date(params.dateFrom).getTime();
+      filtered = filtered.filter((a) => new Date(a.createdAt).getTime() >= from);
+    }
+    if (params.dateTo) {
+      const to = new Date(params.dateTo).getTime();
+      filtered = filtered.filter((a) => new Date(a.createdAt).getTime() <= to);
+    }
+    if (params.search) {
+      const s = params.search.toLowerCase();
+      filtered = filtered.filter(
+        (a) =>
+          a.customer?.name.toLowerCase().includes(s) ||
+          a.customer?.phone.includes(s) ||
+          a.barcodeItem.barcode.includes(s),
+      );
+    }
+
+    const skip = params.skip || 0;
+    const take = params.take || 20;
+    return {
+      data: filtered.slice(skip, skip + take),
+      total: filtered.length,
+      skip,
+      take,
+    };
   },
 };
