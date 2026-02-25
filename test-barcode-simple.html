@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Simple Barcode Test - Natri Ion</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 900px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .upload-area {
+            border: 3px dashed #007bff;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+            border-radius: 10px;
+            background: #f8f9ff;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+        }
+        .upload-area.dragover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+            transform: scale(1.02);
+        }
+        .preview-img {
+            max-width: 100%;
+            max-height: 400px;
+            margin: 15px 0;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .logs {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border-radius: 5px;
+            border: 1px solid #333;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .barcode-result {
+            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            font-weight: bold;
+            color: #28a745;
+            background: #f8fff9;
+            padding: 15px;
+            border: 2px solid #28a745;
+            border-radius: 5px;
+            margin: 10px 0;
+            text-align: center;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .stat-card {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Test Barcode Detection - Natri Ion Battery</h1>
+        <p><strong>Mục tiêu:</strong> Detect barcode <code>YTX5AN12020N2507302790</code> từ screenshot</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            <div onclick="document.getElementById('fileInput').click()" style="cursor: pointer;">
+                📷 <strong>Click để chọn ảnh</strong><br>
+                HOẶC<br>
+                📎 <strong>Kéo thả ảnh vào đây</strong>
+            </div>
+            <p style="margin-top: 15px; color: #6c757d;">
+                Hỗ trợ: PNG, JPG, JPEG, WebP<br>
+                <small>Files của bạn: Screenshot 2026-02-26 *.png</small>
+            </p>
+        </div>
+
+        <div id="preview"></div>
+        
+        <div style="text-align: center; margin: 20px 0;">
+            <button id="testBtn" onclick="startDetection()" disabled>
+                🎯 BẮT ĐẦU TEST DETECTION
+            </button>
+        </div>
+        
+        <div id="result" class="result" style="display: none;">
+            <h3>📋 Kết Quả Detection:</h3>
+            <div id="resultContent"></div>
+        </div>
+        
+        <div class="result">
+            <h3>🔧 Debug Console:</h3>
+            <div id="logs" class="logs">Sẵn sàng để test...\n</div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import ZXing for real barcode detection
+        import { BrowserMultiFormatReader } from 'https://unpkg.com/@zxing/browser@0.1.5/esm/index.js';
+        
+        let selectedFile = null;
+        let logCount = 0;
+        let reader = null;
+
+        // Initialize ZXing reader
+        async function initializeReader() {
+            try {
+                reader = new BrowserMultiFormatReader();
+                log('✅ ZXing reader initialized successfully');
+                return true;
+            } catch (error) {
+                log('❌ Failed to initialize ZXing reader:', error.message);
+                return false;
+            }
+        }
+
+        // Logging system
+        function log(message, data = null) {
+            logCount++;
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('logs');
+            
+            let logEntry = `[${timestamp}] ${message}`;
+            if (data) {
+                if (typeof data === 'object') {
+                    logEntry += '\n' + JSON.stringify(data, null, 2);
+                } else {
+                    logEntry += ' ' + data;
+                }
+            }
+            logEntry += '\n';
+            
+            logDiv.textContent += logEntry;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message, data || '');
+        }
+
+        // File handling
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                processFile(file);
+            }
+        }
+
+        // Drag & Drop
+        const uploadArea = document.getElementById('uploadArea');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('dragover');
+            }, false);
+        });
+
+        uploadArea.addEventListener('drop', handleDrop, false);
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function handleDrop(e) {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    processFile(file);
+                } else {
+                    log('❌ File type not supported:', file.type);
+                    alert('Chỉ hỗ trợ file ảnh (PNG, JPG, etc.)');
+                }
+            }
+        }
+
+        function processFile(file) {
+            selectedFile = file;
+            log('📁 File selected:', {
+                name: file.name,
+                size: Math.round(file.size / 1024) + 'KB',
+                type: file.type
+            });
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `
+                    <div style="text-align: center;">
+                        <img src="${e.target.result}" class="preview-img" alt="Preview">
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-label">File Name</div>
+                                <div class="stat-value">${file.name}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">File Size</div>
+                                <div class="stat-value">${Math.round(file.size/1024)}KB</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">File Type</div>
+                                <div class="stat-value">${file.type}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                log('✅ Image preview loaded successfully');
+                document.getElementById('testBtn').disabled = false;
+            };
+            reader.onerror = function() {
+                log('❌ FileReader error');
+                alert('Lỗi đọc file ảnh');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Real barcode detection using ZXing
+        async function startDetection() {
+            if (!selectedFile) {
+                log('⚠️ No file selected');
+                return;
+            }
+
+            log('🚀 Starting REAL barcode detection with ZXing...');
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('resultContent').innerHTML = '⏳ Đang xử lý với engine thật...';
+
+            const VALID_PREFIXES = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
+            const EXPECTED_BARCODE = 'YTX5AN12020N2507302790';
+
+            // Initialize reader if not done
+            if (!reader) {
+                const initialized = await initializeReader();
+                if (!initialized) {
+                    showResults(null, null, VALID_PREFIXES, EXPECTED_BARCODE, 'ZXing initialization failed');
+                    return;
+                }
+            }
+
+            try {
+                const img = new Image();
+                img.onload = async function() {
+                    log('🖼️ Image loaded for REAL processing:', {
+                        width: img.width,
+                        height: img.height,
+                        ratio: (img.width / img.height).toFixed(2)
+                    });
+
+                    // Multiple detection strategies with ZXing
+                    const strategies = [
+                        { name: 'Original Image', scale: 1.0, enhance: 'none' },
+                        { name: 'High Contrast', scale: 1.0, enhance: 'contrast' },
+                        { name: 'Large Scale + Contrast', scale: 1.5, enhance: 'contrast' },
+                        { name: 'Small Scale + Contrast', scale: 0.7, enhance: 'contrast' },
+                        { name: 'Binary Threshold Low', scale: 1.0, enhance: 'binary_low' },
+                        { name: 'Binary Threshold High', scale: 1.0, enhance: 'binary_high' },
+                        { name: 'Sharpened Image', scale: 1.0, enhance: 'sharpen' },
+                        { name: 'Rotated +5°', scale: 1.0, enhance: 'contrast', rotate: 5 },
+                        { name: 'Rotated -5°', scale: 1.0, enhance: 'contrast', rotate: -5 },
+                        { name: 'Large Binary', scale: 1.8, enhance: 'binary_low' },
+                        { name: 'Small Sharp', scale: 0.6, enhance: 'sharpen' },
+                        { name: 'Extreme Contrast', scale: 1.2, enhance: 'extreme' }
+                    ];
+
+                    let detectedText = null;
+                    let usedStrategy = null;
+                    let processingDetails = [];
+
+                    // Try each strategy with real ZXing detection
+                    for (const strategy of strategies) {
+                        log(`🔄 Trying REAL detection with: ${strategy.name}`);
+                        
+                        try {
+                            const canvas = await processImageWithStrategy(img, strategy);
+                            if (!canvas) {
+                                log(`❌ Failed to create canvas for ${strategy.name}`);
+                                continue;
+                            }
+
+                            // Real ZXing detection
+                            const result = await reader.decodeFromCanvas(canvas);
+                            if (result) {
+                                const rawText = result.getText()?.trim();
+                                log(`🎯 RAW detection result: "${rawText}"`);
+                                
+                                if (rawText) {
+                                    // Try different cleanups
+                                    const candidates = [
+                                        rawText,
+                                        rawText.toUpperCase(),
+                                        rawText.replace(/[^A-Z0-9]/gi, '').toUpperCase(),
+                                        rawText.replace(/[^A-Z0-9]/g, ''),
+                                        rawText.trim().toUpperCase()
+                                    ];
+                                    
+                                    for (const candidate of candidates) {
+                                        log(`🧪 Testing candidate: "${candidate}" (${candidate.length} chars)`);
+                                        
+                                        if (candidate && candidate.length >= 8) {
+                                            // Check if it's valid barcode
+                                            const hasValidPrefix = VALID_PREFIXES.some(p => candidate.startsWith(p));
+                                            const isAlphanumeric = /^[A-Z0-9]+$/.test(candidate);
+                                            const isReasonableLength = candidate.length >= 12 && candidate.length <= 40;
+                                            
+                                            log(`📊 Validation check:`, {
+                                                hasValidPrefix,
+                                                isAlphanumeric,
+                                                isReasonableLength,
+                                                prefixFound: VALID_PREFIXES.find(p => candidate.startsWith(p))
+                                            });
+                                            
+                                            if (hasValidPrefix && isAlphanumeric && isReasonableLength) {
+                                                detectedText = candidate;
+                                                usedStrategy = strategy;
+                                                processingDetails.push({
+                                                    strategy: strategy.name,
+                                                    rawText,
+                                                    cleanedText: candidate,
+                                                    success: true
+                                                });
+                                                log(`🎉 VALID BARCODE FOUND: "${candidate}" with ${strategy.name}`);
+                                                break;
+                                            } else {
+                                                log(`❌ Candidate "${candidate}" failed validation`);
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (detectedText) break;
+                                } else {
+                                    log(`⚠️ Empty result from ${strategy.name}`);
+                                }
+                            } else {
+                                log(`❌ No detection with ${strategy.name}`);
+                            }
+                            
+                            processingDetails.push({
+                                strategy: strategy.name,
+                                success: !!detectedText
+                            });
+                            
+                        } catch (strategyError) {
+                            log(`💥 Error in strategy ${strategy.name}:`, strategyError.message);
+                            processingDetails.push({
+                                strategy: strategy.name,
+                                error: strategyError.message,
+                                success: false
+                            });
+                        }
+                    }
+
+                    // Show final results
+                    showResults(detectedText, usedStrategy, VALID_PREFIXES, EXPECTED_BARCODE, null, processingDetails);
+                };
+
+                img.onerror = function() {
+                    log('❌ Failed to load image for processing');
+                    showResults(null, null, VALID_PREFIXES, EXPECTED_BARCODE, 'Image load failed');
+                };
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(selectedFile);
+
+            } catch (error) {
+                log('💥 Detection error:', error.message);
+                showResults(null, null, VALID_PREFIXES, EXPECTED_BARCODE, error.message);
+            }
+        }
+
+        async function processImageWithStrategy(img, strategy) {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                if (!ctx) {
+                    log('❌ Cannot create canvas context');
+                    return null;
+                }
+                
+                // Calculate dimensions
+                let width = Math.floor(img.width * strategy.scale);
+                let height = Math.floor(img.height * strategy.scale);
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                // Apply rotation if specified
+                if (strategy.rotate && strategy.rotate !== 0) {
+                    ctx.save();
+                    ctx.translate(width / 2, height / 2);
+                    ctx.rotate((strategy.rotate * Math.PI) / 180);
+                    ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(img, 0, 0, width, height);
+                }
+                
+                // Apply image enhancement
+                if (strategy.enhance && strategy.enhance !== 'none') {
+                    applyImageEnhancement(ctx, canvas, strategy.enhance);
+                }
+                
+                log(`✅ Processed image with ${strategy.name}: ${canvas.width}x${canvas.height}`);
+                return canvas;
+                
+            } catch (error) {
+                log(`❌ Error processing image with ${strategy.name}:`, error.message);
+                return null;
+            }
+        }
+
+        function applyImageEnhancement(ctx, canvas, enhanceType) {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            switch (enhanceType) {
+                case 'contrast':
+                    // High contrast black/white with adaptive threshold
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const enhanced = gray > 140 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = enhanced;
+                    }
+                    break;
+                    
+                case 'binary_low':
+                    // Low threshold binary
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const binary = gray > 100 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = binary;
+                    }
+                    break;
+                    
+                case 'binary_high':
+                    // High threshold binary
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const binary = gray > 180 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = binary;
+                    }
+                    break;
+                    
+                case 'sharpen':
+                    // Sharpen filter
+                    const sharpened = new Uint8ClampedArray(data);
+                    const width = canvas.width;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const x = (i / 4) % width;
+                        const y = Math.floor(i / 4 / width);
+                        
+                        if (x > 0 && x < width - 1 && y > 0 && y < canvas.height - 1) {
+                            const center = data[i];
+                            const top = data[i - width * 4];
+                            const bottom = data[i + width * 4];
+                            const left = data[i - 4];
+                            const right = data[i + 4];
+                            
+                            const enhanced = Math.max(0, Math.min(255, center * 5 - top - bottom - left - right));
+                            sharpened[i] = sharpened[i + 1] = sharpened[i + 2] = enhanced;
+                        }
+                    }
+                    data.set(sharpened);
+                    break;
+                    
+                case 'extreme':
+                    // Extreme processing with histogram equalization simulation
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const enhanced = gray > 120 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = enhanced;
+                    }
+                    break;
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function showResults(detectedText, strategy, validPrefixes, expectedBarcode, errorMsg = null, processingDetails = []) {
+            const resultDiv = document.getElementById('resultContent');
+            
+            if (detectedText) {
+                const isValidPrefix = validPrefixes.some(p => detectedText.startsWith(p));
+                const isExpectedBarcode = detectedText === expectedBarcode;
+                const matchingPrefix = validPrefixes.find(p => detectedText.startsWith(p));
+                
+                log('🎉 REAL BARCODE DETECTED:', {
+                    detected: detectedText,
+                    strategy: strategy?.name,
+                    isValidPrefix,
+                    isExpectedBarcode,
+                    matchingPrefix,
+                    length: detectedText.length
+                });
+
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <h4>🎉 THÀNH CÔNG - PHÁT HIỆN BARCODE THẬT!</h4>
+                        <div class="barcode-result">${detectedText}</div>
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-label">Detection Method</div>
+                                <div class="stat-value">🔬 Real ZXing Engine</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Strategy Used</div>
+                                <div class="stat-value">${strategy?.name || 'Unknown'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Length</div>
+                                <div class="stat-value">${detectedText.length} chars</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Valid Prefix</div>
+                                <div class="stat-value">${isValidPrefix ? `✅ ${matchingPrefix}` : '❌ No'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Expected Match</div>
+                                <div class="stat-value">${isExpectedBarcode ? '🎯 Perfect Match' : '🔄 Different Code'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Strategies Tried</div>
+                                <div class="stat-value">${processingDetails.length} methods</div>
+                            </div>
+                        </div>
+                        ${isExpectedBarcode ? 
+                            '<p style="color: #28a745; font-weight: bold;">🎯 100% CHÍNH XÁC - Đây chính xác là barcode mong đợi!</p>' :
+                            isValidPrefix ?
+                                '<p style="color: #17a2b8; font-weight: bold;">✅ BARCODE HỢP LỆ - Đây là barcode Natri Ion battery khác!</p>' :
+                                '<p style="color: #ffc107; font-weight: bold;">⚠️ Format không chuẩn nhưng đã detect được text</p>'
+                        }
+                        <details style="margin-top: 15px;">
+                            <summary>🔍 Chi tiết Detection Process</summary>
+                            <div style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                                ${processingDetails.map((detail, i) => `
+                                    <div style="padding: 5px; border-bottom: 1px solid #eee;">
+                                        <strong>${i + 1}. ${detail.strategy}</strong>: 
+                                        ${detail.success ? '✅ Success' : '❌ Failed'}
+                                        ${detail.rawText ? `<br><small>Raw: "${detail.rawText}"</small>` : ''}
+                                        ${detail.cleanedText ? `<br><small>Cleaned: "${detail.cleanedText}"</small>` : ''}
+                                        ${detail.error ? `<br><small style="color: red;">Error: ${detail.error}</small>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </details>
+                    </div>
+                `;
+                
+            } else {
+                log('💔 NO BARCODE DETECTED - Tried all real detection strategies');
+                
+                const errorSection = errorMsg ? `
+                    <div style="background: #f8d7da; padding: 10px; border-radius: 5px; margin: 10px 0;">
+                        <strong>⚠️ Error Details:</strong> ${errorMsg}
+                    </div>
+                ` : '';
+                
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ KHÔNG PHÁT HIỆN BARCODE</h4>
+                        <p><strong>🔬 Đã thử detection engine thật (ZXing)</strong> với ${processingDetails.length} strategies khác nhau.</p>
+                        ${errorSection}
+                        <p><strong>Phân tích kết quả:</strong></p>
+                        <div style="max-height: 200px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 5px;">
+                            ${processingDetails.length > 0 ? 
+                                processingDetails.map((detail, i) => `
+                                    <div style="padding: 3px 0;">
+                                        <strong>${i + 1}. ${detail.strategy}</strong>: ${detail.success ? '✅' : '❌'}
+                                        ${detail.error ? ` (${detail.error})` : ''}
+                                    </div>
+                                `).join('') :
+                                '<div>Không có chi tiết xử lý available</div>'
+                            }
+                        </div>
+                        <p><strong>🔧 Gợi ý cải thiện:</strong></p>
+                        <ul style="text-align: left;">
+                            <li><strong>Chất lượng ảnh:</strong> Đảm bảo barcode rõ nét, không bị mờ</li>
+                            <li><strong>Contrast:</strong> Barcode cần có độ tương phản cao (đen trắng rõ ràng)</li>
+                            <li><strong>Kích thước:</strong> Barcode không quá nhỏ trong ảnh</li>
+                            <li><strong>Góc chụp:</strong> Chụp vuông góc, không bị nghiêng</li>
+                            <li><strong>Ánh sáng:</strong> Đủ sáng, không bị phản quang</li>
+                            <li><strong>Loại barcode:</strong> Tool hỗ trợ Code128, Code39, EAN</li>
+                        </ul>
+                        <p><em>🎯 Expected: ${expectedBarcode}</em></p>
+                        <p><em>📝 Valid prefixes: ${validPrefixes.join(', ')}</em></p>
+                    </div>
+                `;
+            }
+        }
+
+        // Initialize tool
+        async function initializeTool() {
+            log('🔧 Real barcode detection tool initializing...');
+            log('📝 Valid prefixes: 12N5L, 12N7L, YTX4A, YTX5A, YTX7A');
+            log('🎯 Target barcode: YTX5AN12020N2507302790');
+            log('🔬 Detection engine: ZXing Browser Library');
+            
+            // Pre-initialize ZXing for better performance
+            await initializeReader();
+            
+            log('✅ Tool ready for REAL barcode detection!');
+        }
+
+        // Start initialization when page loads
+        initializeTool();
+    </script>
+</body>
+</html>
