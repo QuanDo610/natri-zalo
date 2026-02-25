@@ -54,13 +54,13 @@ async function main() {
   }
   console.log('✅ Dealers created:', dealerRecords.length);
 
-  // ---- Products ----
+  // ---- Products (5 loại bình ắc quy Natri Ion — SKU = đầu mã barcode) ----
   const productsData = [
-    { sku: 'P001', name: 'Natri Ion 500ml' },
-    { sku: 'P002', name: 'Natri Ion 1.5L' },
-    { sku: 'P003', name: 'Natri Ion Thùng 12 chai' },
-    { sku: 'P004', name: 'Natri Ion Sport 750ml' },
-    { sku: 'P005', name: 'Natri Ion Zero 500ml' },
+    { sku: '12N5L', name: 'Bình ắc quy Natri – Ion xe máy số 12N5L' },
+    { sku: '12N7L', name: 'Bình ắc quy Natri Ion xe máy ga 12N7L' },
+    { sku: 'YTX4A', name: 'Bình ắc quy xe máy Natri Ion YTX4A' },
+    { sku: 'YTX5A', name: 'Bình ắc quy xe tay ga Natri Ion YTX5A' },
+    { sku: 'YTX7A', name: 'Bình ắc quy xe tay ga Natri Ion YTX7A' },
   ];
 
   const products: any[] = [];
@@ -74,10 +74,13 @@ async function main() {
   }
   console.log('✅ Products created:', products.length);
 
-  // ---- Barcode Items (50 barcodes) ----
+  // ---- Barcode Items (50 barcodes with proper prefix format) ----
+  const skuPrefixes = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
   const barcodes: string[] = [];
   for (let i = 1; i <= 50; i++) {
-    barcodes.push(`893600${String(i).padStart(4, '0')}`);
+    const prefix = skuPrefixes[i % skuPrefixes.length];
+    const suffix = `N${String(i).padStart(5, '0')}N2507${String(300000 + i)}`;
+    barcodes.push(`${prefix}${suffix}`);
   }
 
   let barcodeCount = 0;
