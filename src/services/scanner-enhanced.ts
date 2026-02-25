@@ -5,6 +5,14 @@
 import { BrowserMultiFormatOneDReader, BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
+export const SCANNER_VERSION = '1.3.0';
+// v1.0.0 – Initial ZXing + QuaggaJS multi-engine scanner
+// v1.1.0 – Fix regex bug in barcode candidate cleaning
+// v1.2.0 – Pre-load QuaggaJS before strategy list; add direct decodeFromImageElement strategy
+// v1.3.0 – Create fresh ZXing reader per decode attempt to prevent caching
+
+console.log(`[Scanner] v${SCANNER_VERSION} loaded`);
+
 // Dynamically import QuaggaJS for better compatibility
 let Quagga: any = null;
 
