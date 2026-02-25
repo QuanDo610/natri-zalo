@@ -16,6 +16,8 @@ import type {
   CreateBarcodeResponse,
   BatchBarcodeResult,
   ProductItem,
+  ScanAddBarcodeRequest,
+  ScanAddBarcodeResponse,
 } from '@/types';
 import { mockApi } from '@/services/mock-service';
 
@@ -127,6 +129,10 @@ const realApi = {
   // ── Barcode management (STAFF/ADMIN) ──────
   createBarcode: (data: CreateBarcodeRequest): Promise<CreateBarcodeResponse> =>
     request('POST', '/barcodes', data),
+
+  /** POST /barcodes/scan-add — Camera scan: chỉ gửi code, backend tự parse prefix */
+  scanAddBarcode: (data: ScanAddBarcodeRequest): Promise<ScanAddBarcodeResponse> =>
+    request('POST', '/barcodes/scan-add', data),
 
   createBarcodeBatch: (
     items: { code: string; productSku: string }[],
