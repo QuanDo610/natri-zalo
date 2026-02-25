@@ -140,13 +140,50 @@ export async function decodeFromImageFile(file: File): Promise<{
             let barcode: string | undefined;
             let debugInfo = `Enhanced multi-engine processing ${file.name} (${img.width}x${img.height}px, ${Math.round(file.size/1024)}KB). `;
 
+            // Pre-load QuaggaJS before building strategy list
+            const quagga = await loadQuagga();
+
             // Create detection engines
             const zxingMulti = new BrowserMultiFormatReader();
             const zxing1D = createReader();
 
-            // Enhanced detection strategies
-            const strategies = [
+            // ── STRATEGY 0: ZXing direct from image element (most reliable) ──
+            try {
+              console.log('🔬 Trying ZXing direct from img element...');
+              const directResult = await zxingMulti.decodeFromImageElement(img);
+              if (directResult) {
+                const text = directResult.getText()?.trim()?.toUpperCase();
+                if (text && isValidBarcode(text)) {
+                  barcode = text;
+                  debugInfo += `SUCCESS with ZXing Direct: "${barcode}". `;
+                  console.log('✅ Direct detection:', barcode);
+                }
+              }
+            } catch {
+              console.log('Direct detection failed, trying strategies...');
+            }
+
+            // Also try 1D reader directly on img element
+            if (!barcode) {
+              try {
+                const directResult1D = await zxing1D.decodeFromImageElement(img);
+                if (directResult1D) {
+                  const text = directResult1D.getText()?.trim()?.toUpperCase();
+                  if (text && isValidBarcode(text)) {
+                    barcode = text;
+                    debugInfo += `SUCCESS with ZXing1D Direct: "${barcode}". `;
+                    console.log('✅ Direct 1D detection:', barcode);
+                  }
+                }
+              } catch {
+                // continue
+              }
+            }
+
+            // Enhanced detection strategies (run if direct detection failed)
+            const strategies: any[] = [
               { scale: 1.0, rotate: 0, enhance: 'none', engine: 'zxing', label: 'ZXing Original' },
+              { scale: 1.0, rotate: 0, enhance: 'grayscale', engine: 'zxing', label: 'ZXing Grayscale' },
               { scale: 1.0, rotate: 0, enhance: 'contrast', engine: 'zxing', label: 'ZXing High Contrast' },
               { scale: 1.2, rotate: 0, enhance: 'contrast', engine: 'zxing', label: 'ZXing Large + Contrast' },
               { scale: 0.8, rotate: 0, enhance: 'contrast', engine: 'zxing', label: 'ZXing Small + Contrast' },
@@ -158,8 +195,8 @@ export async function decodeFromImageFile(file: File): Promise<{
               { scale: 0.6, rotate: 0, enhance: 'extreme', engine: 'zxing', label: 'ZXing Small + Extreme' },
             ];
 
-            // Add QuaggaJS strategies if available
-            if (Quagga) {
+            // Add QuaggaJS strategies if available (already pre-loaded above)
+            if (quagga) {
               strategies.push(
                 { scale: 1.0, rotate: 0, enhance: 'none', engine: 'quagga', label: 'Quagga Original' },
                 { scale: 1.0, rotate: 0, enhance: 'contrast', engine: 'quagga', label: 'Quagga High Contrast' },
@@ -179,7 +216,7 @@ export async function decodeFromImageFile(file: File): Promise<{
 
                 let result: string | null = null;
                 
-                if (strategy.engine === 'quagga' && Quagga) {
+                if (strategy.engine === 'quagga' && quagga) {
                   result = await detectWithQuagga(canvas);
                 } else {
                   // Try both ZXing readers
@@ -206,7 +243,7 @@ export async function decodeFromImageFile(file: File): Promise<{
                     result.toUpperCase(),
                     result.replace(/[^A-Z0-9]/gi, '').toUpperCase(),
                     result.trim().toUpperCase(),
-                    result.replace(/[\\s\\-_\\.]/g, '').toUpperCase()
+                    result.replace(/[\s\-_\.]/g, '').toUpperCase()  // FIX: single backslash for regex
                   ];
                   
                   for (const candidate of candidates) {
@@ -297,6 +334,14 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
   const data = imageData.data;
   
   switch (enhanceType) {
+    case 'grayscale':
+      // Pure grayscale (no thresholding) - helps ZXing's internal processing
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        data[i] = data[i + 1] = data[i + 2] = gray;
+      }
+      break;
+    
     case 'contrast':
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
