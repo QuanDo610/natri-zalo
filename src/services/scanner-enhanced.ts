@@ -7,10 +7,30 @@ import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 // Dynamically import QuaggaJS for better compatibility
 let Quagga: any = null;
-try {
-  Quagga = require('quagga');
-} catch (err) {
-  console.warn('QuaggaJS not available:', err);
+
+// Async function to load QuaggaJS dynamically
+async function loadQuagga() {
+  if (Quagga) return Quagga;
+  
+  try {
+    // Try dynamic import first (modern bundlers)
+    const QuaggaModule = await import('quagga');
+    Quagga = QuaggaModule.default || QuaggaModule;
+    console.log('✅ QuaggaJS loaded via dynamic import');
+    return Quagga;
+  } catch (err) {
+    console.warn('QuaggaJS dynamic import failed:', err);
+    
+    // Fallback to global window object (if loaded via script tag)
+    if (typeof window !== 'undefined' && (window as any).Quagga) {
+      Quagga = (window as any).Quagga;
+      console.log('✅ QuaggaJS loaded from window object');
+      return Quagga;
+    }
+    
+    console.warn('QuaggaJS not available in any form');
+    return null;
+  }
 }
 
 // ── Supported barcode prefixes for battery products ──
@@ -328,11 +348,12 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
 
 // ── QuaggaJS detection (if available) ──
 async function detectWithQuagga(canvas: HTMLCanvasElement): Promise<string | null> {
-  if (!Quagga) return null;
+  const quagga = await loadQuagga();
+  if (!quagga) return null;
   
   return new Promise((resolve) => {
     try {
-      Quagga.decodeSingle({
+      quagga.decodeSingle({
         src: canvas.toDataURL(),
         numOfWorkers: 0,
         decoder: {
