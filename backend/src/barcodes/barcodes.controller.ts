@@ -8,7 +8,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { BarcodesService } from './barcodes.service';
-import { CreateBarcodeDto, CreateBarcodeBatchDto } from './dto/create-barcode.dto';
+import { CreateBarcodeDto, CreateBarcodeBatchDto, ScanAddBarcodeDto } from './dto/create-barcode.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -20,10 +20,8 @@ export class BarcodesController {
   constructor(private barcodesService: BarcodesService) {}
 
   /**
-   * POST /barcodes — Add a single barcode
+   * POST /barcodes — Add a single barcode (manual, with productSku)
    * Roles: STAFF, ADMIN
-   * Body: { code: "8936...", productSku: "P001" }
-   * Errors: 409 BARCODE_ALREADY_EXISTS, 404 PRODUCT_NOT_FOUND
    */
   @Post()
   async create(@Body() dto: CreateBarcodeDto, @Request() req) {
@@ -35,9 +33,20 @@ export class BarcodesController {
   }
 
   /**
+   * POST /barcodes/scan-add — Add barcode from camera scan
+   * Backend tự parse prefix → product, không cần client chọn SKU
+   * Roles: STAFF, ADMIN
+   * Body: { code: "YTX5AN12020N2507302790" }
+   * Errors: 409 BARCODE_ALREADY_EXISTS, 400 INVALID_BARCODE_FORMAT
+   */
+  @Post('scan-add')
+  async scanAdd(@Body() dto: ScanAddBarcodeDto, @Request() req) {
+    return this.barcodesService.scanAddBarcode(dto.code, req.user.id);
+  }
+
+  /**
    * POST /barcodes/batch — Add multiple barcodes
    * Roles: STAFF, ADMIN
-   * Body: { items: [{ code: "..", productSku: "P001" }, ...] }
    */
   @Post('batch')
   async createBatch(@Body() dto: CreateBarcodeBatchDto, @Request() req) {
@@ -47,7 +56,6 @@ export class BarcodesController {
   /**
    * GET /barcodes — List barcodes with filters
    * Roles: STAFF, ADMIN
-   * Query: sku, status (UNUSED|USED), q, skip, take
    */
   @Get()
   async findAll(
