@@ -17,6 +17,8 @@ import type {
   CreateBarcodeResponse,
   BatchBarcodeResult,
   ProductItem,
+  ScanAddBarcodeRequest,
+  ScanAddBarcodeResponse,
 } from '@/types';
 
 // ---- Dealers ----
@@ -28,14 +30,16 @@ const dealers: DealerInfo[] = [
   { id: 'd5', code: 'DL005', name: 'Hoàng Thị Em',    phone: '0945678901', shopName: 'Tạp hóa Em',          address: '654 Võ Văn Tần, Q3, HCM',      points: 0 },
 ];
 
-// ---- Products ----
+// ---- Products (5 loại bình ắc quy — SKU = đầu mã barcode) ----
 const products = [
-  { id: 'p1', name: 'Natri Ion 500ml',          sku: 'P001' },
-  { id: 'p2', name: 'Natri Ion 1.5L',           sku: 'P002' },
-  { id: 'p3', name: 'Natri Ion Thùng 12 chai',  sku: 'P003' },
-  { id: 'p4', name: 'Natri Ion Sport 750ml',    sku: 'P004' },
-  { id: 'p5', name: 'Natri Ion Zero 500ml',     sku: 'P005' },
+  { id: 'p1', name: 'Bình ắc quy Natri – Ion xe máy số 12N5L', sku: '12N5L' },
+  { id: 'p2', name: 'Bình ắc quy Natri Ion xe máy ga 12N7L',   sku: '12N7L' },
+  { id: 'p3', name: 'Bình ắc quy xe máy Natri Ion YTX4A',      sku: 'YTX4A' },
+  { id: 'p4', name: 'Bình ắc quy xe tay ga Natri Ion YTX5A',   sku: 'YTX5A' },
+  { id: 'p5', name: 'Bình ắc quy xe tay ga Natri Ion YTX7A',   sku: 'YTX7A' },
 ];
+
+const MOCK_PREFIXES = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
 
 // ---- Barcodes (50) ----
 interface BarcodeItemMock {
@@ -47,7 +51,8 @@ interface BarcodeItemMock {
 
 const barcodeItems: BarcodeItemMock[] = [];
 for (let i = 1; i <= 50; i++) {
-  const barcode = `893600${String(i).padStart(4, '0')}`;
+  const prefix = MOCK_PREFIXES[(i - 1) % MOCK_PREFIXES.length];
+  const barcode = `${prefix}N${String(i).padStart(5, '0')}N2507${String(300000 + i)}`;
   const productIndex = (i - 1) % products.length;
   barcodeItems.push({
     barcode,
@@ -395,6 +400,41 @@ export const mockApi = {
   getProducts: async (): Promise<ProductItem[]> => {
     await delay(200);
     return products.map((p) => ({ id: p.id, name: p.name, sku: p.sku }));
+  },
+
+  // ── Barcode scan-add (STAFF/ADMIN) — camera flow ──────
+  scanAddBarcode: async (data: ScanAddBarcodeRequest): Promise<ScanAddBarcodeResponse> => {
+    await delay(400);
+    if (!mockAuthUser || !['STAFF', 'ADMIN'].includes(mockAuthUser.role)) {
+      throw { statusCode: 403, message: 'Forbidden' };
+    }
+
+    const code = data.code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{12,40}$/.test(code)) {
+      throw { statusCode: 400, message: 'INVALID_BARCODE_FORMAT' };
+    }
+
+    const matchedPrefix = MOCK_PREFIXES.find((p) => code.startsWith(p));
+    if (!matchedPrefix) {
+      throw { statusCode: 400, message: 'INVALID_BARCODE_FORMAT' };
+    }
+
+    const existing = barcodeItems.find((b) => b.barcode === code);
+    if (existing) {
+      throw { statusCode: 409, message: `Barcode "${code}" đã tồn tại.`, error: 'BARCODE_ALREADY_EXISTS' };
+    }
+
+    const product = products.find((p) => p.sku === matchedPrefix)!;
+    barcodeItems.push({ barcode: code, productId: product.id, activated: false, activatedAt: null });
+
+    return {
+      id: `bc_${Date.now()}`,
+      code,
+      product: { id: product.id, sku: product.sku, name: product.name },
+      status: 'UNUSED',
+      createdAt: new Date().toISOString(),
+      createdBy: { username: mockAuthUser.username || 'staff', fullName: mockAuthUser.fullName || 'Staff' },
+    };
   },
 
   // ── Barcode management (STAFF/ADMIN) ──────
