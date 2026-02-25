@@ -96,7 +96,7 @@ export function parseBarcodePrefix(
   return null;
 }
 
-// ── Create Enhanced ZXing Reader ──────────────────────────────────
+// ── Create Enhanced ZXing 1D Reader (fresh instance, no cache) ──────
 function createReader(): BrowserMultiFormatOneDReader {
   const hints = new Map();
   hints.set(DecodeHintType.POSSIBLE_FORMATS, [
@@ -109,8 +109,14 @@ function createReader(): BrowserMultiFormatOneDReader {
     BarcodeFormat.ITF,
   ]);
   hints.set(DecodeHintType.TRY_HARDER, true);
-  
   return new BrowserMultiFormatOneDReader(hints);
+}
+
+// ── Create Multi-Format Reader with TRY_HARDER (fresh, no cache) ──────
+function createMultiReader(): BrowserMultiFormatReader {
+  const hints = new Map();
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  return new BrowserMultiFormatReader(hints);
 }
 
 // ── Enhanced detection from image file ──────────────────────────
@@ -143,14 +149,11 @@ export async function decodeFromImageFile(file: File): Promise<{
             // Pre-load QuaggaJS before building strategy list
             const quagga = await loadQuagga();
 
-            // Create detection engines
-            const zxingMulti = new BrowserMultiFormatReader();
-            const zxing1D = createReader();
-
-            // ── STRATEGY 0: ZXing direct from image element (most reliable) ──
+            // ── STRATEGY 0: ZXing direct from image element (fresh readers, no cache) ──
             try {
-              console.log('🔬 Trying ZXing direct from img element...');
-              const directResult = await zxingMulti.decodeFromImageElement(img);
+              console.log('🔬 Trying ZXing Multi direct from img element...');
+              const r0 = createMultiReader();  // fresh instance every time
+              const directResult = await r0.decodeFromImageElement(img);
               if (directResult) {
                 const text = directResult.getText()?.trim()?.toUpperCase();
                 if (text && isValidBarcode(text)) {
@@ -160,13 +163,14 @@ export async function decodeFromImageFile(file: File): Promise<{
                 }
               }
             } catch {
-              console.log('Direct detection failed, trying strategies...');
+              console.log('Direct multi detection failed, trying 1D...');
             }
 
-            // Also try 1D reader directly on img element
+            // Also try 1D reader directly on img element (fresh instance)
             if (!barcode) {
               try {
-                const directResult1D = await zxing1D.decodeFromImageElement(img);
+                const r0b = createReader();  // fresh instance every time
+                const directResult1D = await r0b.decodeFromImageElement(img);
                 if (directResult1D) {
                   const text = directResult1D.getText()?.trim()?.toUpperCase();
                   if (text && isValidBarcode(text)) {
@@ -219,9 +223,9 @@ export async function decodeFromImageFile(file: File): Promise<{
                 if (strategy.engine === 'quagga' && quagga) {
                   result = await detectWithQuagga(canvas);
                 } else {
-                  // Try both ZXing readers
-                  const readers = [zxingMulti, zxing1D];
-                  for (const reader of readers) {
+                  // Create fresh readers each strategy attempt — prevents ZXing internal cache
+                  const freshReaders = [createMultiReader(), createReader()];
+                  for (const reader of freshReaders) {
                     try {
                       const zxingResult = await reader.decodeFromCanvas(canvas);
                       if (zxingResult) {
