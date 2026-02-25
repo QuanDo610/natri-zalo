@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 Multi-Engine Barcode Test - Natri Ion</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 1000px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #f5f7fd 0%, #c3cfe2 100%);
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+        }
+        .engine-status {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .engine-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            flex: 1;
+            border: 2px solid #dee2e6;
+        }
+        .engine-ready {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        .engine-error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+        .upload-area {
+            border: 3px dashed #007bff;
+            padding: 40px;
+            text-align: center;
+            margin: 25px 0;
+            border-radius: 15px;
+            background: linear-gradient(135deg, #f8f9ff 0%, #e3f2fd 100%);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .upload-area:hover, .upload-area.dragover {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-color: #1976d2;
+            transform: translateY(-2px);
+        }
+        .preview-img {
+            max-width: 100%;
+            max-height: 400px;
+            margin: 20px 0;
+            border: 3px solid #dee2e6;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 12px;
+        }
+        .success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-color: #28a745;
+            color: #155724;
+        }
+        .error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border-color: #dc3545;
+            color: #721c24;
+        }
+        .logs {
+            background: #1a1a1a;
+            color: #00ff41;
+            padding: 20px;
+            font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 450px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border-radius: 8px;
+            border: 2px solid #333;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+        }
+        button {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
+        }
+        button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,123,255,0.4);
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .barcode-result {
+            font-family: 'Cascadia Code', 'Courier New', monospace;
+            font-size: 22px;
+            font-weight: bold;
+            color: #28a745;
+            background: linear-gradient(135deg, #f8fff9 0%, #e8f5e8 100%);
+            padding: 20px;
+            border: 3px solid #28a745;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(40,167,69,0.2);
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #e9ecef 0%, #f8f9fa 100%);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #6c757d;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .stat-value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #495057;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Multi-Engine Barcode Detection</h1>
+            <p>ZXing + QuaggaJS • Natri Ion Battery Scanner</p>
+        </div>
+        
+        <div class="engine-status">
+            <div class="engine-card" id="zxingStatus">
+                <h4>🔬 ZXing Engine</h4>
+                <div id="zxingState">⏳ Initializing...</div>
+            </div>
+            <div class="engine-card" id="quaggaStatus">
+                <h4>🎯 QuaggaJS Engine</h4>
+                <div id="quaggaState">⏳ Initializing...</div>
+            </div>
+        </div>
+        
+        <p style="text-align: center;"><strong>Target:</strong> <code>YTX5AN12020N2507302790</code></p>
+        
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            <div onclick="document.getElementById('fileInput').click()">
+                📷 <strong>Click to Select Image</strong><br>
+                OR<br>
+                📎 <strong>Drag & Drop Image Here</strong>
+            </div>
+            <p style="margin-top: 20px; color: #6c757d;">
+                Supports: PNG, JPG, JPEG, WebP<br>
+                <small>Your files: Screenshot 2026-02-26 *.png</small>
+            </p>
+        </div>
+
+        <div id="preview"></div>
+        
+        <div style="text-align: center; margin: 25px 0;">
+            <button id="testBtn" onclick="startMultiEngineDetection()" disabled>
+                🎯 START MULTI-ENGINE DETECTION
+            </button>
+        </div>
+        
+        <div id="progress" style="display: none;">
+            <h4>Detection Progress:</h4>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div id="progressText">Starting...</div>
+        </div>
+        
+        <div id="result" class="result" style="display: none;">
+            <h3>📋 Detection Results:</h3>
+            <div id="resultContent"></div>
+        </div>
+        
+        <div class="result">
+            <h3>🔧 Debug Console:</h3>
+            <div id="logs" class="logs">Initializing multi-engine detection system...\n</div>
+        </div>
+    </div>
+
+    <!-- Load ZXing Library -->
+    <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
+
+    <!-- Load QuaggaJS Library -->
+    <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+
+    <script type="module">
+        // Import libraries
+        let ZXingReader = null;
+        let Quagga = window.Quagga;
+        let selectedFile = null;
+        let logCount = 0;
+
+        // Initialize ZXing
+        try {
+            if (window.ZXing && window.ZXingBrowser) {
+                ZXingReader = new window.ZXingBrowser.BrowserMultiFormatReader();
+                updateEngineStatus('zxing', true);
+            } else {
+                throw new Error('ZXing modules not loaded');
+            }
+        } catch (error) {
+            updateEngineStatus('zxing', false, error.message);
+        }
+
+        // Initialize QuaggaJS
+        try {
+            if (window.Quagga) {
+                Quagga = window.Quagga;
+                updateEngineStatus('quagga', true);
+            } else {
+                throw new Error('Quagga module not loaded');
+            }
+        } catch (error) {
+            updateEngineStatus('quagga', false, error.message);
+        }
+
+        function updateEngineStatus(engine, success, errorMsg = '') {
+            const statusCard = document.getElementById(engine + 'Status');
+            const stateDiv = document.getElementById(engine + 'State');
+            
+            if (success) {
+                statusCard.classList.add('engine-ready');
+                stateDiv.innerHTML = '✅ Ready';
+                log(`✅ ${engine.toUpperCase()} engine initialized successfully`);
+            } else {
+                statusCard.classList.add('engine-error');
+                stateDiv.innerHTML = '❌ Failed';
+                log(`❌ ${engine.toUpperCase()} engine failed: ${errorMsg}`);
+            }
+        }
+
+        // Logging system
+        function log(message, data = null) {
+            logCount++;
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('logs');
+            
+            let logEntry = `[${timestamp}] ${message}`;
+            if (data) {
+                if (typeof data === 'object') {
+                    logEntry += '\n' + JSON.stringify(data, null, 2);
+                } else {
+                    logEntry += ' ' + data;
+                }
+            }
+            logEntry += '\n';
+            
+            logDiv.textContent += logEntry;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message, data || '');
+        }
+
+        // File handling
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                processFile(file);
+            }
+        }
+
+        // Drag & Drop
+        const uploadArea = document.getElementById('uploadArea');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('dragover');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('dragover');
+            }, false);
+        });
+
+        uploadArea.addEventListener('drop', handleDrop, false);
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function handleDrop(e) {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    processFile(file);
+                } else {
+                    log('❌ File type not supported:', file.type);
+                    alert('Only image files supported (PNG, JPG, etc.)');
+                }
+            }
+        }
+
+        function processFile(file) {
+            selectedFile = file;
+            log('📁 File selected:', {
+                name: file.name,
+                size: Math.round(file.size / 1024) + 'KB',
+                type: file.type
+            });
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `
+                    <div style="text-align: center;">
+                        <img src="${e.target.result}" class="preview-img" alt="Preview">
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-label">File Name</div>
+                                <div class="stat-value">${file.name}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">File Size</div>
+                                <div class="stat-value">${Math.round(file.size/1024)}KB</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">File Type</div>
+                                <div class="stat-value">${file.type}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Engines Available</div>
+                                <div class="stat-value">${(ZXingReader ? 1 : 0) + (Quagga ? 1 : 0)}/2</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                log('✅ Image preview loaded successfully');
+                document.getElementById('testBtn').disabled = false;
+            };
+            reader.onerror = function() {
+                log('❌ FileReader error');
+                alert('Error reading image file');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Progress bar
+        function updateProgress(percentage, text) {
+            document.getElementById('progress').style.display = 'block';
+            document.getElementById('progressFill').style.width = percentage + '%';
+            document.getElementById('progressText').textContent = text;
+        }
+
+        // Multi-engine detection
+        async function startMultiEngineDetection() {
+            if (!selectedFile) {
+                log('⚠️ No file selected');
+                return;
+            }
+
+            if (!ZXingReader && !Quagga) {
+                log('❌ No detection engines available');
+                alert('No barcode detection engines are available. Please check your internet connection.');
+                return;
+            }
+
+            log('🚀 Starting MULTI-ENGINE barcode detection...');
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('resultContent').innerHTML = '⏳ Processing with multiple engines...';
+            
+            updateProgress(5, 'Loading image...');
+
+            const VALID_PREFIXES = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
+            
+            // Enhanced flexible barcode validation (from scanner-enhanced.ts)
+            function isValidBarcode(barcode) {
+                if (!barcode) return false;
+                const trimmed = barcode.trim().toUpperCase();
+                
+                log('🔍 Barcode validation:', {
+                    original: barcode,
+                    trimmed: trimmed,
+                    length: trimmed.length
+                });
+                
+                // Accept any alphanumeric barcode with reasonable length
+                if (/^[A-Z0-9]{8,40}$/.test(trimmed)) {
+                    const hasValidPrefix = VALID_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+                    
+                    if (hasValidPrefix) {
+                        log('✅ Valid battery barcode with known prefix');
+                        return true;
+                    }
+                    
+                    // Also accept other reasonable alphanumeric codes (flexible mode)
+                    if (trimmed.length >= 12 && trimmed.length <= 40) {
+                        log('✅ Valid alphanumeric barcode (flexible mode)');
+                        return true;
+                    }
+                }
+                
+                // Accept numeric barcodes (legacy support)
+                if (/^[0-9]{8,20}$/.test(trimmed)) {
+                    log('✅ Valid numeric barcode');
+                    return true;
+                }
+                
+                log('❌ Invalid barcode format');
+                return false;
+            }
+
+            try {
+                const img = new Image();
+                img.onload = async function() {
+                    log('🖼️ Image loaded for multi-engine processing:', {
+                        width: img.width,
+                        height: img.height,
+                        ratio: (img.width / img.height).toFixed(2)
+                    });
+
+                    updateProgress(15, 'Image loaded, preparing strategies...');
+
+                    const strategies = [
+                        { name: 'ZXing Original', engine: 'zxing', scale: 1.0, enhance: 'none' },
+                        { name: 'Quagga Original', engine: 'quagga', scale: 1.0, enhance: 'none' },
+                        { name: 'ZXing High Contrast', engine: 'zxing', scale: 1.0, enhance: 'contrast' },
+                        { name: 'Quagga High Contrast', engine: 'quagga', scale: 1.0, enhance: 'contrast' },
+                        { name: 'ZXing Large + Contrast', engine: 'zxing', scale: 1.5, enhance: 'contrast' },
+                        { name: 'Quagga Large + Contrast', engine: 'quagga', scale: 1.5, enhance: 'contrast' },
+                        { name: 'ZXing Small + Sharp', engine: 'zxing', scale: 0.7, enhance: 'sharpen' },
+                        { name: 'Quagga Small + Sharp', engine: 'quagga', scale: 0.7, enhance: 'sharpen' },
+                        { name: 'ZXing Binary Low', engine: 'zxing', scale: 1.0, enhance: 'binary_low' },
+                        { name: 'Quagga Binary Low', engine: 'quagga', scale: 1.0, enhance: 'binary_low' },
+                        { name: 'ZXing Rotated +5°', engine: 'zxing', scale: 1.0, enhance: 'contrast', rotate: 5 },
+                        { name: 'Quagga Rotated +5°', engine: 'quagga', scale: 1.0, enhance: 'contrast', rotate: 5 },
+                        { name: 'ZXing Rotated -5°', engine: 'zxing', scale: 1.0, enhance: 'contrast', rotate: -5 },
+                        { name: 'Quagga Rotated -5°', engine: 'quagga', scale: 1.0, enhance: 'contrast', rotate: -5 },
+                        { name: 'ZXing Extreme', engine: 'zxing', scale: 1.2, enhance: 'extreme' },
+                        { name: 'Quagga Extreme', engine: 'quagga', scale: 1.2, enhance: 'extreme' }
+                    ];
+
+                    let detectedText = null;
+                    let usedStrategy = null;
+                    let processingDetails = [];
+                    let successfulEngine = null;
+
+                    updateProgress(20, 'Starting detection with multiple strategies...');
+
+                    for (let i = 0; i < strategies.length; i++) {
+                        const strategy = strategies[i];
+                        const progressPerc = 20 + (i / strategies.length) * 70;
+                        
+                        updateProgress(progressPerc, `Trying ${strategy.name}...`);
+                        
+                        // Skip if engine not available
+                        if ((strategy.engine === 'zxing' && !ZXingReader) || 
+                            (strategy.engine === 'quagga' && !Quagga)) {
+                            log(`⚠️ Skipping ${strategy.name} - engine not available`);
+                            processingDetails.push({
+                                strategy: strategy.name,
+                                engine: strategy.engine,
+                                success: false,
+                                error: 'Engine not available'
+                            });
+                            continue;
+                        }
+
+                        log(`🔄 Trying ${strategy.name}...`);
+                        
+                        try {
+                            const canvas = await processImageWithStrategy(img, strategy);
+                            if (!canvas) {
+                                log(`❌ Failed to create canvas for ${strategy.name}`);
+                                continue;
+                            }
+
+                            let result = null;
+                            
+                            if (strategy.engine === 'zxing' && ZXingReader) {
+                                result = await detectWithZXing(canvas);
+                            } else if (strategy.engine === 'quagga' && Quagga) {
+                                result = await detectWithQuagga(canvas);
+                            }
+                            
+                            if (result) {
+                                const rawText = result.trim();
+                                log(`🎯 RAW detection result from ${strategy.engine}: "${rawText}"`);
+                                
+                                if (rawText) {
+                                    const candidates = [
+                                        rawText,
+                                        rawText.toUpperCase(),
+                                        rawText.replace(/[^A-Z0-9]/gi, '').toUpperCase(),
+                                        rawText.trim().toUpperCase()
+                                    ];
+                                    
+                                    for (const candidate of candidates) {
+                                        if (isValidBarcode(candidate)) {
+                                            detectedText = candidate;
+                                            usedStrategy = strategy;
+                                            successfulEngine = strategy.engine;
+                                            processingDetails.push({
+                                                strategy: strategy.name,
+                                                engine: strategy.engine,
+                                                rawText,
+                                                cleanedText: candidate,
+                                                success: true
+                                            });
+                                            log(`🎉 VALID BARCODE FOUND: "${candidate}" with ${strategy.name}`);
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if (detectedText) break;
+                                }
+                            }
+                            
+                            processingDetails.push({
+                                strategy: strategy.name,
+                                engine: strategy.engine,
+                                success: false
+                            });
+                            
+                        } catch (strategyError) {
+                            log(`💥 Error in ${strategy.name}:`, strategyError.message);
+                            processingDetails.push({
+                                strategy: strategy.name,
+                                engine: strategy.engine,
+                                error: strategyError.message,
+                                success: false
+                            });
+                        }
+                        
+                        if (detectedText) break;
+                    }
+
+                    updateProgress(100, detectedText ? 'Detection completed successfully!' : 'Detection completed - no barcode found');
+                    
+                    setTimeout(() => {
+                        document.getElementById('progress').style.display = 'none';
+                        showResults(detectedText, usedStrategy, successfulEngine, VALID_PREFIXES, null, processingDetails);
+                    }, 1000);
+                };
+
+                img.onerror = function() {
+                    log('❌ Failed to load image for processing');
+                    showResults(null, null, null, VALID_PREFIXES, 'Image load failed');
+                };
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(selectedFile);
+
+            } catch (error) {
+                log('💥 Detection error:', error.message);
+                showResults(null, null, null, VALID_PREFIXES, EXPECTED_BARCODE, error.message);
+            }
+        }
+
+        async function processImageWithStrategy(img, strategy) {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                if (!ctx) return null;
+                
+                let width = Math.floor(img.width * strategy.scale);
+                let height = Math.floor(img.height * strategy.scale);
+                
+                canvas.width = width;
+                canvas.height = height;
+                
+                if (strategy.rotate && strategy.rotate !== 0) {
+                    ctx.save();
+                    ctx.translate(width / 2, height / 2);
+                    ctx.rotate((strategy.rotate * Math.PI) / 180);
+                    ctx.drawImage(img, -width / 2, -height / 2, width, height);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(img, 0, 0, width, height);
+                }
+                
+                if (strategy.enhance && strategy.enhance !== 'none') {
+                    applyImageEnhancement(ctx, canvas, strategy.enhance);
+                }
+                
+                return canvas;
+                
+            } catch (error) {
+                log(`❌ Error processing image with ${strategy.name}:`, error.message);
+                return null;
+            }
+        }
+
+        function applyImageEnhancement(ctx, canvas, enhanceType) {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            switch (enhanceType) {
+                case 'contrast':
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const enhanced = gray > 140 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = enhanced;
+                    }
+                    break;
+                case 'binary_low':
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const binary = gray > 100 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = binary;
+                    }
+                    break;
+                case 'sharpen':
+                    const sharpened = new Uint8ClampedArray(data);
+                    const width = canvas.width;
+                    for (let i = 0; i < data.length; i += 4) {
+                        const x = (i / 4) % width;
+                        const y = Math.floor(i / 4 / width);
+                        if (x > 0 && x < width - 1 && y > 0 && y < canvas.height - 1) {
+                            const center = data[i];
+                            const top = data[i - width * 4];
+                            const bottom = data[i + width * 4];
+                            const left = data[i - 4];
+                            const right = data[i + 4];
+                            const enhanced = Math.max(0, Math.min(255, center * 5 - top - bottom - left - right));
+                            sharpened[i] = sharpened[i + 1] = sharpened[i + 2] = enhanced;
+                        }
+                    }
+                    data.set(sharpened);
+                    break;
+                case 'extreme':
+                    for (let i = 0; i < data.length; i += 4) {
+                        const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        const enhanced = gray > 120 ? 255 : 0;
+                        data[i] = data[i + 1] = data[i + 2] = enhanced;
+                    }
+                    break;
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        async function detectWithZXing(canvas) {
+            try {
+                const result = await ZXingReader.decodeFromCanvas(canvas);
+                return result ? result.getText() : null;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function detectWithQuagga(canvas) {
+            return new Promise((resolve) => {
+                try {
+                    Quagga.decodeSingle({
+                        src: canvas.toDataURL(),
+                        numOfWorkers: 0,
+                        decoder: {
+                            readers: [
+                                'code_128_reader',
+                                'code_39_reader', 
+                                'code_93_reader',
+                                'ean_reader',
+                                'ean_8_reader',
+                                'code_39_vin_reader'
+                            ]
+                        },
+                        locate: true
+                    }, (result) => {
+                        if (result && result.codeResult) {
+                            resolve(result.codeResult.code);
+                        } else {
+                            resolve(null);
+                        }
+                    });
+                } catch (err) {
+                    resolve(null);
+                }
+            });
+        }
+
+        function showResults(detectedText, strategy, engine, validPrefixes, errorMsg = null, processingDetails = []) {
+            const resultDiv = document.getElementById('resultContent');
+            
+            if (detectedText) {
+                const isValidPrefix = validPrefixes.some(p => detectedText.startsWith(p));
+                const isFlexibleValid = isValidBarcode(detectedText);
+                const matchingPrefix = validPrefixes.find(p => detectedText.startsWith(p));
+                
+                log('🎉 MULTI-ENGINE BARCODE DETECTED:', {
+                    detected: detectedText,
+                    strategy: strategy?.name,
+                    engine: engine,
+                    isValidPrefix,
+                    isFlexibleValid,
+                    matchingPrefix,
+                    length: detectedText.length
+                });
+
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <h4>🎉 SUCCESS - BARCODE DETECTED!</h4>
+                        <div class="barcode-result">${detectedText}</div>
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-label">Detection Engine</div>
+                                <div class="stat-value">${engine === 'zxing' ? '🔬 ZXing' : '🎯 QuaggaJS'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Strategy Used</div>
+                                <div class="stat-value">${strategy?.name || 'Unknown'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Length</div>
+                                <div class="stat-value">${detectedText.length} chars</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Valid Prefix</div>
+                                <div class="stat-value">${isValidPrefix ? `✅ ${matchingPrefix}` : '❌ No'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Validation</div>
+                                <div class="stat-value">${isFlexibleValid ? '✅ Valid' : '⚠️ Invalid'}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Attempts Made</div>
+                                <div class="stat-value">${processingDetails.length} strategies</div>
+                            </div>
+                        </div>
+                        ${isExpectedBarcode ? 
+                            '<p style="color: #28a745; font-weight: bold; text-align: center;">🎯 100% PERFECT MATCH!</p>' :
+                            isValidPrefix ?
+                                '<p style="color: #17a2b8; font-weight: bold; text-align: center;">✅ VALID NATRI ION BARCODE!</p>' :
+                                '<p style="color: #ffc107; font-weight: bold; text-align: center;">⚠️ Detected text but invalid format</p>'
+                        }
+                    </div>
+                `;
+                
+            } else {
+                log('💔 NO BARCODE DETECTED after multi-engine attempts');
+                
+                const zxingAttempts = processingDetails.filter(d => d.engine === 'zxing').length;
+                const quaggaAttempts = processingDetails.filter(d => d.engine === 'quagga').length;
+                
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ NO BARCODE DETECTED</h4>
+                        <p><strong>🔬 Multi-engine detection attempted</strong> with ${processingDetails.length} different strategies.</p>
+                        
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-label">ZXing Attempts</div>
+                                <div class="stat-value">${zxingAttempts}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">QuaggaJS Attempts</div>
+                                <div class="stat-value">${quaggaAttempts}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Total Strategies</div>
+                                <div class="stat-value">${processingDetails.length}</div>
+                            </div>
+                        </div>
+                        
+                        <p><strong>🔧 Recommendations:</strong></p>
+                        <ul style="text-align: left;">
+                            <li><strong>Image Quality:</strong> Ensure barcode is sharp and clear</li>
+                            <li><strong>Contrast:</strong> High contrast (black bars on white background)</li>
+                            <li><strong>Size:</strong> Barcode should be large enough in image</li>
+                            <li><strong>Angle:</strong> Straight on view, not tilted</li>
+                            <li><strong>Lighting:</strong> Even lighting, no shadows or glare</li>
+                        </ul>
+                        
+                        <p><em>🎯 Expected: ${expectedBarcode}</em></p>
+                        <p><em>📝 Valid prefixes: ${validPrefixes.join(', ')}</em></p>
+                    </div>
+                `;
+            }
+        }
+
+        // Initialize
+        log('🚀 Multi-engine barcode detection system ready');
+        log(`📊 Available engines: ${(ZXingReader ? 'ZXing ' : '')}${(Quagga ? 'QuaggaJS' : '')}`);
+        log('🎯 Target: YTX5AN12020N2507302790');
+
+        // Make functions available globally
+        window.startMultiEngineDetection = startMultiEngineDetection;
+    </script>
+</body>
+</html>
