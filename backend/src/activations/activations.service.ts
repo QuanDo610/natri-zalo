@@ -53,7 +53,7 @@ export class ActivationsService {
       });
 
       // 3. Find dealer (optional)
-      let dealer = null;
+      let dealer: any = null;
       if (dto.dealerCode) {
         dealer = await tx.dealer.findUnique({
           where: { code: dto.dealerCode },
@@ -88,7 +88,7 @@ export class ActivationsService {
       });
 
       // 6. Increment dealer points (if applicable)
-      let updatedDealer = null;
+      let updatedDealer: any = null;
       if (dealer) {
         updatedDealer = await tx.dealer.update({
           where: { id: dealer.id },
