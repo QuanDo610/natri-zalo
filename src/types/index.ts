@@ -156,3 +156,21 @@ export interface ProductItem {
   name: string;
   sku: string;
 }
+
+// ── Scan-add barcode (camera flow) ─────────────────────────────
+export interface ScanAddBarcodeRequest {
+  code: string;
+}
+
+export interface ScanAddBarcodeResponse {
+  id: string;
+  code: string;
+  product: {
+    id: string;
+    sku: string;
+    name: string;
+  };
+  status: BarcodeStatus;
+  createdAt: string;
+  createdBy?: { username: string; fullName: string } | null;
+}
