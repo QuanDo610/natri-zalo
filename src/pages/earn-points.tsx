@@ -12,7 +12,7 @@ import {
   customerPhoneAtom,
 } from '@/store/app-store';
 import { api } from '@/services/api-client';
-import { startScan, stopScan, startCameraPreview, captureAndDecode, decodeFromImageFile, isValidBarcode, isValidPhone, type ScannerError } from '@/services/scanner-enhanced';
+import { startScan, stopScan, startCameraPreview, captureAndDecode, decodeFromImageFile, isValidBarcode, isValidPhone, SCANNER_VERSION, type ScannerError } from '@/services/scanner-enhanced';
 import type { ApiError, ProductInfo } from '@/types';
 
 function EarnPointsPage() {
@@ -373,6 +373,9 @@ function EarnPointsPage() {
               Đại lý: {dealerInfo.shopName} ({dealerInfo.code})
             </Text>
           )}
+          <Text size="xSmall" className="text-gray-300 mt-1">
+            Scanner v{SCANNER_VERSION}
+          </Text>
         </Box>
 
         {/* Barcode section */}

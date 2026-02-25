@@ -450,7 +450,10 @@ export type ScannerError =
   | 'PERMISSION_DENIED'
   | 'NO_CAMERA' 
   | 'HTTPS_REQUIRED'
-  | 'UNKNOWN_ERROR';
+  | 'UNKNOWN_ERROR'
+  | 'UNKNOWN'
+  | 'NOT_READABLE'
+  | 'TIMEOUT';
 
 // ── Camera controls ──────────────────────────────────────────────
 let currentControls: IScannerControls | null = null;

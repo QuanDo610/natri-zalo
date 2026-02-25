@@ -14,6 +14,7 @@ import {
   decodeFromImageFile,
   isValidBarcode,
   parseBarcodePrefix,
+  SCANNER_VERSION,
   type ScannerError,
 } from '@/services/scanner-enhanced';
 import type { ApiError, BarcodeItemInfo } from '@/types';
@@ -429,6 +430,9 @@ function BarcodeManagePage() {
           </Text.Title>
           <Text size="xSmall" className="text-gray-400 mt-1">
             Quét bằng camera để thêm barcode
+          </Text>
+          <Text size="xSmall" className="text-gray-300 mt-1">
+            Scanner v{SCANNER_VERSION}
           </Text>
         </Box>
 
