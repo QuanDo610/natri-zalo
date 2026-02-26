@@ -62,6 +62,13 @@ function EarnPointsPage() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number; step: number } | null>(null);
 
+  // Toast notification for scan feedback
+  const [scanToast, setScanToast] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
+  const toastTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Error modal for critical scan failures
+  const [errorModal, setErrorModal] = useState<{ title: string; message: string; action: string } | null>(null);
+
   // Auto-fill customer info from logged-in user
   useEffect(() => {
     if (isLoggedInCustomer && authUser) {
@@ -72,6 +79,19 @@ function EarnPointsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedInCustomer]);
+
+  // Toast auto-dismiss effect
+  useEffect(() => {
+    if (scanToast) {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setScanToast(null);
+      }, 4000);
+    }
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, [scanToast]);
 
   // Cleanup camera on unmount
   useEffect(() => {
@@ -216,7 +236,7 @@ function EarnPointsPage() {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             if (!ctx) {
-              setError('Cannot create canvas context');
+              setScanToast({ type: 'error', message: '❌ Lỗi: Không thể xử lý ảnh' });
               setScanningPhoto(false);
               return;
             }
@@ -268,27 +288,43 @@ function EarnPointsPage() {
             }
 
             if (!found) {
-              setError('Không tìm thấy barcode hợp lệ. Vui lòng thử ảnh khác có barcode rõ nét hơn.');
+              setErrorModal({ 
+                title: '❌ Không tìm thấy Barcode', 
+                message: 'Ảnh tải lên không chứa barcode rõ nét hoặc đọc được. Vui lòng:\n\n• Thử ảnh khác có barcode rõ hơn\n• Hoặc chụp ảnh mới từ camera\n• Đảm bảo barcode nằm chính giữa ảnh',
+                action: 'Thử lại'
+              });
             }
           } catch (err) {
             console.error('Re-scan error:', err);
-            setError('Lỗi khi quét lại ảnh. Vui lòng thử ảnh khác.');
+            setErrorModal({ 
+              title: '❌ Lỗi xử lý ảnh', 
+              message: 'Đã xảy ra lỗi khi quét barcode từ ảnh. Vui lòng:\n\n• Kiểm tra kích thước ảnh (không quá lớn)\n• Thử ảnh khác\n• Hoặc chụp ảnh mới từ camera',
+              action: 'Đóng'
+            });
           } finally {
             setScanningPhoto(false);
           }
         };
         img.onerror = () => {
-          setError('Lỗi khi tải ảnh. Vui lòng thử lại.');
+          setErrorModal({ 
+            title: '❌ Lỗi tải ảnh', 
+            message: 'Không thể tải ảnh đã chọn. Vui lòng:\n\n• Kiểm tra định dạng ảnh (JPG, PNG)\n• Đảm bảo kích thước ảnh hợp lý\n• Thử ảnh khác hoặc chụp ảnh mới',
+            action: 'Đóng'
+          });
           setScanningPhoto(false);
         };
         img.src = uploadedPhoto;
       } catch (err) {
         console.error('Upload scan error:', err);
-        setError('Lỗi khi quét ảnh upload. Vui lòng thử lại.');
+        setErrorModal({ 
+          title: '❌ Lỗi quét ảnh', 
+          message: 'Không thể quét barcode từ ảnh đã tải lên. Vui lòng:\n\n• Chụp ảnh mới với camera (chất lượng tốt hơn)\n• Hoặc thử ảnh khác có barcode rõ hơn',
+          action: 'Đóng'
+        });
         setScanningPhoto(false);
       }
     } else {
-      setError('Không có ảnh để quét. Vui lòng chụp hoặc upload ảnh trước.');
+      setScanToast({ type: 'warning', message: '⚠️ Vui lòng chụp hoặc upload ảnh trước khi quét!' });
     }
   };
 
@@ -630,9 +666,27 @@ function EarnPointsPage() {
           style={{ background: 'rgba(0,0,0,0.90)' }}
         >
           <div
-            className="bg-white rounded-3xl w-full"
-            style={{ maxWidth: 520, maxHeight: '90vh', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
+            className="bg-white rounded-3xl w-full mx-2"
+            style={{ maxWidth: 380, maxHeight: '75vh', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
           >
+            {/* Toast notification at top of modal */}
+            {scanToast && (
+              <div
+                className={`mx-4 mt-3 p-3 rounded-xl flex items-start gap-2 text-sm font-medium animate-in fade-in slide-in-from-top-2 duration-300 ${
+                  scanToast.type === 'error'
+                    ? 'bg-red-50 border-2 border-red-300 text-red-700'
+                    : scanToast.type === 'warning'
+                    ? 'bg-yellow-50 border-2 border-yellow-300 text-yellow-700'
+                    : 'bg-green-50 border-2 border-green-300 text-green-700'
+                }`}
+              >
+                <span className="text-lg flex-shrink-0">
+                  {scanToast.type === 'error' ? '❌' : scanToast.type === 'warning' ? '⚠️' : '✅'}
+                </span>
+                <span className="flex-1">{scanToast.message}</span>
+              </div>
+            )}
+
             {/* No handle bar needed for centered modal */}
             <div className="flex justify-end pt-2 px-4">
               <button
@@ -643,10 +697,10 @@ function EarnPointsPage() {
               </button>
             </div>
 
-            <div className="px-4 pb-4 space-y-3">
+            <div className="px-3 pb-3 space-y-2.5">
               {/* Title row */}
               <div className="text-center">
-                <span className="font-bold text-gray-800 text-xl">
+                <span className="font-bold text-gray-800 text-lg">
                   {(capturedPhoto || uploadedPhoto) ? '🔍 Xem lại ảnh' : '📷 Chụp barcode'}
                 </span>
               </div>
@@ -699,13 +753,19 @@ function EarnPointsPage() {
                 )}
               </div>
 
-              {/* Zoom slider — only when live preview and zoom supported */}
+              {/* Zoom controls — only when live preview and zoom supported */}
               {!capturedPhoto && !uploadedPhoto && zoomCaps && (
-                <div className="space-y-2 px-2 py-2 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between text-xs text-gray-600">
-                    <span className="font-semibold">🔭 Zoom</span>
-                    <span className="font-bold text-blue-600">{zoomLevel.toFixed(1)}×</span>
+                <div className="space-y-2 px-2 py-2.5 bg-gradient-to-b from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200">
+                  {/* Zoom level display */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900">🔭 ZOOM</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xl font-bold text-blue-600">{zoomLevel.toFixed(1)}</span>
+                      <span className="text-base font-semibold text-blue-700">×</span>
+                    </div>
                   </div>
+
+                  {/* Slider */}
                   <input
                     type="range"
                     min={zoomCaps.min}
@@ -717,19 +777,76 @@ function EarnPointsPage() {
                       setZoomLevel(val);
                       setPreviewZoom(val);
                     }}
-                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                    className="w-full h-3 rounded-full appearance-none cursor-pointer"
                     style={{ accentColor: '#3b82f6' }}
                   />
+
+                  {/* +/- Buttons */}
+                  <div className="flex gap-1.5 justify-between">
+                    <button
+                      onClick={() => {
+                        const newZoom = Math.max(zoomCaps!.min, zoomLevel - (zoomCaps!.step || 0.1));
+                        setZoomLevel(newZoom);
+                        setPreviewZoom(newZoom);
+                      }}
+                      className="flex-1 px-2 py-1.5 rounded-lg bg-white border-2 border-blue-300 text-blue-700 font-bold text-xs hover:bg-blue-50 transition-colors active:scale-95"
+                    >
+                      − Thu
+                    </button>
+                    <button
+                      onClick={() => {
+                        const resetZoom = 1;
+                        setZoomLevel(resetZoom);
+                        setPreviewZoom(resetZoom);
+                      }}
+                      className="flex-1 px-2 py-1.5 rounded-lg bg-blue-500 text-white font-semibold text-xs hover:bg-blue-600 transition-colors active:scale-95"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={() => {
+                        const newZoom = Math.min(zoomCaps!.max, zoomLevel + (zoomCaps!.step || 0.1));
+                        setZoomLevel(newZoom);
+                        setPreviewZoom(newZoom);
+                      }}
+                      className="flex-1 px-2 py-1.5 rounded-lg bg-white border-2 border-blue-300 text-blue-700 font-bold text-xs hover:bg-blue-50 transition-colors active:scale-95"
+                    >
+                      + Phóng
+                    </button>
+                  </div>
+
+                  {/* Preset zoom levels */}
+                  <div className="flex gap-0.5 justify-center pt-0.5">
+                    {[1.0, 1.5, 2.0].map((preset) => {
+                      if (preset > zoomCaps.max) return null;
+                      return (
+                        <button
+                          key={preset}
+                          onClick={() => {
+                            setZoomLevel(preset);
+                            setPreviewZoom(preset);
+                          }}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded-sm transition-colors ${
+                            Math.abs(zoomLevel - preset) < 0.05
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
+                          }`}
+                        >
+                          {preset}×
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
               {/* Action buttons */}
               {(capturedPhoto || uploadedPhoto) ? (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <p className="text-center text-xs text-gray-600 font-medium">
-                    {capturedPhoto ? '✅ Ảnh đã chụp' : '📷 Ảnh đã tải lên'} · Chọn hành động tiếp theo
+                    {capturedPhoto ? '✅ Ảnh đã chụp' : '📷 Ảnh tải lên'}
                   </p>
-                  <div className="flex gap-2 justify-center">
+                  <div className="flex gap-1.5 justify-center">
                     {capturedPhoto ? (
                       <button
                         onClick={() => {
@@ -744,7 +861,7 @@ function EarnPointsPage() {
                             }
                           }, 100);
                         }}
-                        className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                       >
                         📷 Chụp lại
                       </button>
@@ -752,7 +869,7 @@ function EarnPointsPage() {
                       <>
                         <button
                           onClick={handleUploadImage}
-                          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                          className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                           🖼 Ảnh khác
                         </button>
@@ -769,7 +886,7 @@ function EarnPointsPage() {
                               }
                             }, 100);
                           }}
-                          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                          className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                           📷 Chụp mới
                         </button>
@@ -778,7 +895,7 @@ function EarnPointsPage() {
                     <button
                       onClick={handleScanFromPhoto}
                       disabled={scanningPhoto}
-                      className="px-6 py-2.5 rounded-xl text-sm font-bold text-white transition-all flex items-center gap-2"
+                      className="px-4 py-2 rounded-lg text-xs font-bold text-white transition-all flex items-center gap-1.5"
                       style={{
                         background: scanningPhoto
                           ? '#93c5fd'
@@ -791,20 +908,20 @@ function EarnPointsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3 text-center">
+                <div className="space-y-2 text-center">
                   <p className="text-xs text-gray-500 font-medium">
-                    📸 Đưa barcode vào khung xanh rồi nhấn <span className="text-green-600">Chụp</span>
+                    📸 Đưa barcode vào khung xanh
                   </p>
-                  <div className="flex gap-2 justify-center">
+                  <div className="flex gap-1.5 justify-center">
                     <button
                       onClick={handleStopScan}
-                      className="px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+                      className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       ✕ Hủy
                     </button>
                     <button
                       onClick={handleUploadImage}
-                      className="px-4 py-3 rounded-xl text-sm font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1"
+                      className="px-3 py-2 rounded-lg text-xs font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1"
                     >
                       <Icon icon="zi-photo" /> <span>Ảnh</span>
                     </button>
@@ -832,6 +949,55 @@ function EarnPointsPage() {
               100% { top: 8%;  opacity: 0.8; }
             }
           `}</style>
+        </div>
+      )}
+
+      {/* Error Modal - Prominent popup for scan failures */}
+      {errorModal && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-[9999]"
+          style={{ background: 'rgba(0,0,0,0.95)' }}
+          onClick={() => setErrorModal(null)}
+        >
+          <div
+            className="bg-white rounded-3xl p-6 w-full mx-4 space-y-4 animate-in zoom-in-95 duration-200"
+            style={{ maxWidth: 360 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Error Icon */}
+            <div className="flex justify-center">
+              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center text-4xl">
+                {errorModal.title.includes('Barcode') ? '🔍' : '⚠️'}
+              </div>
+            </div>
+
+            {/* Title */}
+            <div className="text-center space-y-1">
+              <h2 className="text-lg font-bold text-gray-800">{errorModal.title}</h2>
+              <p className="text-sm text-gray-600 whitespace-pre-line leading-relaxed">
+                {errorModal.message}
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setErrorModal(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors active:scale-95"
+              >
+                {errorModal.action}
+              </button>
+              <button
+                onClick={() => {
+                  setErrorModal(null);
+                  setShowCamera(true);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-colors active:scale-95"
+              >
+                📷 Chụp mới
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
