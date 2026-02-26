@@ -707,7 +707,7 @@ function EarnPointsPage() {
               {/* Camera / photo view */}
               <div
                 className="relative rounded-lg overflow-hidden bg-black mx-auto flex-shrink-0"
-                style={{ width: '100%', aspectRatio: '1/1', maxWidth: '100%' }}
+                style={{ width: '85%', aspectRatio: '4/3', maxWidth: '100%' }}
               >
                 {(capturedPhoto || uploadedPhoto) ? (
                   <img
@@ -756,8 +756,8 @@ function EarnPointsPage() {
               {!capturedPhoto && !uploadedPhoto && zoomCaps && (
                 <div className="space-y-0 px-1.5 py-0.5 bg-blue-50 rounded-lg border border-blue-200 flex-shrink-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[9px] font-bold text-blue-900">🔭 ZOOM</span>
-                    <span className="text-[10px] font-bold text-blue-600">{zoomLevel.toFixed(1)}×</span>
+                    <span className="text-[10px] font-bold text-blue-900">🔭 ZOOM</span>
+                    <span className="text-[11px] font-bold text-blue-600">{zoomLevel.toFixed(1)}×</span>
                   </div>
                   <input
                     type="range"
@@ -778,7 +778,7 @@ function EarnPointsPage() {
 
               {/* Action buttons - no overflow */}
               {(capturedPhoto || uploadedPhoto) ? (
-                <div className="flex flex-wrap gap-0.5 justify-center items-center flex-shrink-0">
+                <div className="flex flex-wrap gap-1 justify-center items-center flex-shrink-0">
                   {capturedPhoto ? (
                     <button
                       onClick={() => {
@@ -793,7 +793,7 @@ function EarnPointsPage() {
                           }
                         }, 100);
                       }}
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                      className="px-2 py-1 rounded text-[12px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
                     >
                       📷 Lại
                     </button>
@@ -801,7 +801,7 @@ function EarnPointsPage() {
                     <>
                       <button
                         onClick={handleUploadImage}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                        className="px-2 py-1 rounded text-[12px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
                       >
                         🖼 Khác
                       </button>
@@ -818,7 +818,7 @@ function EarnPointsPage() {
                             }
                           }, 100);
                         }}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                        className="px-2 py-1 rounded text-[12px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
                       >
                         📷 Mới
                       </button>
@@ -827,7 +827,7 @@ function EarnPointsPage() {
                   <button
                     onClick={handleScanFromPhoto}
                     disabled={scanningPhoto}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white transition-all flex items-center gap-0.5 whitespace-nowrap"
+                    className="px-2 py-1 rounded text-[12px] font-bold text-white transition-all flex items-center gap-1 whitespace-nowrap"
                     style={{
                       background: scanningPhoto
                         ? '#93c5fd'
@@ -839,22 +839,22 @@ function EarnPointsPage() {
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-0.5 justify-center items-center flex-shrink-0">
+                <div className="flex flex-wrap gap-1 justify-center items-center flex-shrink-0">
                   <button
                     onClick={handleStopScan}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                    className="px-2 py-1 rounded text-[12px] font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
                   >
                     ✕ Hủy
                   </button>
                   <button
                     onClick={handleUploadImage}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                    className="px-2 py-1 rounded text-[12px] font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors whitespace-nowrap"
                   >
                     🖼 Ảnh
                   </button>
                   <button
                     onClick={handleCapturePhoto}
-                    className="px-2 py-0.5 rounded text-[10px] font-bold text-white flex items-center gap-0.5 transition-all active:scale-95 whitespace-nowrap"
+                    className="px-2.5 py-1 rounded text-[12px] font-bold text-white flex items-center gap-1 transition-all active:scale-95 whitespace-nowrap"
                     style={{
                       background: 'linear-gradient(135deg, #22c55e, #16a34a)',
                       boxShadow: '0 2px 6px rgba(22,163,74,0.25)',
