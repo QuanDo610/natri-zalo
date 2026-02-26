@@ -64,7 +64,7 @@ function EarnPointsPage() {
 
   // Toast notification for scan feedback
   const [scanToast, setScanToast] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
-  const toastTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const toastTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Error modal for critical scan failures
   const [errorModal, setErrorModal] = useState<{ title: string; message: string; action: string } | null>(null);
@@ -659,20 +659,22 @@ function EarnPointsPage() {
         </div>
       </div>
 
-      {/* ── Camera Modal (centered) ── */}
-      {showCamera && (
+      {/* Camera Modal + Error Modal Wrapper */}
+      <>
+        {/* ── Camera Modal (centered) ── */}
+        {showCamera && (
         <div
           className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: 'rgba(0,0,0,0.90)' }}
+          style={{ background: 'rgba(0,0,0,0.92)' }}
         >
           <div
-            className="bg-white rounded-3xl w-full mx-2"
-            style={{ maxWidth: 380, maxHeight: '75vh', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
+            className="bg-white rounded-xl w-[calc(100%-8px)] overflow-hidden flex flex-col mx-1"
+            style={{ maxWidth: '100%', maxHeight: '90vh', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}
           >
             {/* Toast notification at top of modal */}
             {scanToast && (
               <div
-                className={`mx-4 mt-3 p-3 rounded-xl flex items-start gap-2 text-sm font-medium animate-in fade-in slide-in-from-top-2 duration-300 ${
+                className={`mx-1 mt-1 p-1.5 rounded-lg flex items-start gap-1 text-[11px] font-medium animate-in fade-in slide-in-from-top-2 duration-300 ${
                   scanToast.type === 'error'
                     ? 'bg-red-50 border-2 border-red-300 text-red-700'
                     : scanToast.type === 'warning'
@@ -680,35 +682,32 @@ function EarnPointsPage() {
                     : 'bg-green-50 border-2 border-green-300 text-green-700'
                 }`}
               >
-                <span className="text-lg flex-shrink-0">
+                <span className="text-sm flex-shrink-0 mt-0">
                   {scanToast.type === 'error' ? '❌' : scanToast.type === 'warning' ? '⚠️' : '✅'}
                 </span>
-                <span className="flex-1">{scanToast.message}</span>
+                <span className="flex-1 leading-tight text-[11px]">{scanToast.message}</span>
               </div>
             )}
 
-            {/* No handle bar needed for centered modal */}
-            <div className="flex justify-end pt-2 px-4">
+            {/* Header with close button */}
+            <div className="flex items-center justify-between px-2 py-1 bg-gradient-to-r from-blue-50 to-blue-50 border-b border-blue-100">
+              <span className="font-bold text-gray-800 text-[11px]">
+                {(capturedPhoto || uploadedPhoto) ? '🔍 Xem lại' : '📷 Chụp'}
+              </span>
               <button
                 onClick={handleStopScan}
-                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+                className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600 hover:bg-red-200 transition-colors text-xs font-bold"
               >
                 ✕
               </button>
             </div>
 
-            <div className="px-3 pb-3 space-y-2.5">
-              {/* Title row */}
-              <div className="text-center">
-                <span className="font-bold text-gray-800 text-lg">
-                  {(capturedPhoto || uploadedPhoto) ? '🔍 Xem lại ảnh' : '📷 Chụp barcode'}
-                </span>
-              </div>
+            <div className="flex-1 overflow-hidden px-1.5 py-1.5 space-y-1 flex flex-col">
 
-              {/* Camera / photo view - LARGER & CENTERED */}
+              {/* Camera / photo view */}
               <div
-                className="relative rounded-2xl overflow-hidden bg-black mx-auto"
-                style={{ aspectRatio: '3/4', maxWidth: '100%', width: '100%' }}
+                className="relative rounded-lg overflow-hidden bg-black mx-auto flex-shrink-0"
+                style={{ width: '100%', aspectRatio: '1/1', maxWidth: '100%' }}
               >
                 {(capturedPhoto || uploadedPhoto) ? (
                   <img
@@ -725,13 +724,13 @@ function EarnPointsPage() {
                       muted
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
-                    {/* Animated scan-frame overlay - ADJUSTED FOR PORTRAIT */}
+                    {/* Scan frame overlay */}
                     <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
-                      <div className="relative" style={{ width: '80%', height: '50%' }}>
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-400 rounded-tl-lg" />
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-400 rounded-tr-lg" />
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-400 rounded-bl-lg" />
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-400 rounded-br-lg" />
+                      <div className="relative" style={{ width: '80%', height: '48%' }}>
+                        <div className="absolute top-0 left-0 w-5 h-5 border-t-2 border-l-2 border-green-400 rounded-tl" />
+                        <div className="absolute top-0 right-0 w-5 h-5 border-t-2 border-r-2 border-green-400 rounded-tr" />
+                        <div className="absolute bottom-0 left-0 w-5 h-5 border-b-2 border-l-2 border-green-400 rounded-bl" />
+                        <div className="absolute bottom-0 right-0 w-5 h-5 border-b-2 border-r-2 border-green-400 rounded-br" />
                         <div
                           className="absolute left-2 right-2 h-1 bg-green-400 rounded-full"
                           style={{
@@ -753,19 +752,13 @@ function EarnPointsPage() {
                 )}
               </div>
 
-              {/* Zoom controls — only when live preview and zoom supported */}
+              {/* Zoom controls - minimal */}
               {!capturedPhoto && !uploadedPhoto && zoomCaps && (
-                <div className="space-y-2 px-2 py-2.5 bg-gradient-to-b from-blue-50 to-blue-100 rounded-lg border-2 border-blue-200">
-                  {/* Zoom level display */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-900">🔭 ZOOM</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-xl font-bold text-blue-600">{zoomLevel.toFixed(1)}</span>
-                      <span className="text-base font-semibold text-blue-700">×</span>
-                    </div>
+                <div className="space-y-0 px-1.5 py-0.5 bg-blue-50 rounded-lg border border-blue-200 flex-shrink-0">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[9px] font-bold text-blue-900">🔭 ZOOM</span>
+                    <span className="text-[10px] font-bold text-blue-600">{zoomLevel.toFixed(1)}×</span>
                   </div>
-
-                  {/* Slider */}
                   <input
                     type="range"
                     min={zoomCaps.min}
@@ -777,80 +770,44 @@ function EarnPointsPage() {
                       setZoomLevel(val);
                       setPreviewZoom(val);
                     }}
-                    className="w-full h-3 rounded-full appearance-none cursor-pointer"
+                    className="w-full h-1 rounded-full appearance-none cursor-pointer"
                     style={{ accentColor: '#3b82f6' }}
                   />
-
-                  {/* +/- Buttons */}
-                  <div className="flex gap-1.5 justify-between">
-                    <button
-                      onClick={() => {
-                        const newZoom = Math.max(zoomCaps!.min, zoomLevel - (zoomCaps!.step || 0.1));
-                        setZoomLevel(newZoom);
-                        setPreviewZoom(newZoom);
-                      }}
-                      className="flex-1 px-2 py-1.5 rounded-lg bg-white border-2 border-blue-300 text-blue-700 font-bold text-xs hover:bg-blue-50 transition-colors active:scale-95"
-                    >
-                      − Thu
-                    </button>
-                    <button
-                      onClick={() => {
-                        const resetZoom = 1;
-                        setZoomLevel(resetZoom);
-                        setPreviewZoom(resetZoom);
-                      }}
-                      className="flex-1 px-2 py-1.5 rounded-lg bg-blue-500 text-white font-semibold text-xs hover:bg-blue-600 transition-colors active:scale-95"
-                    >
-                      Reset
-                    </button>
-                    <button
-                      onClick={() => {
-                        const newZoom = Math.min(zoomCaps!.max, zoomLevel + (zoomCaps!.step || 0.1));
-                        setZoomLevel(newZoom);
-                        setPreviewZoom(newZoom);
-                      }}
-                      className="flex-1 px-2 py-1.5 rounded-lg bg-white border-2 border-blue-300 text-blue-700 font-bold text-xs hover:bg-blue-50 transition-colors active:scale-95"
-                    >
-                      + Phóng
-                    </button>
-                  </div>
-
-                  {/* Preset zoom levels */}
-                  <div className="flex gap-0.5 justify-center pt-0.5">
-                    {[1.0, 1.5, 2.0].map((preset) => {
-                      if (preset > zoomCaps.max) return null;
-                      return (
-                        <button
-                          key={preset}
-                          onClick={() => {
-                            setZoomLevel(preset);
-                            setPreviewZoom(preset);
-                          }}
-                          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded-sm transition-colors ${
-                            Math.abs(zoomLevel - preset) < 0.05
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
-                          }`}
-                        >
-                          {preset}×
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
               )}
 
-              {/* Action buttons */}
+              {/* Action buttons - no overflow */}
               {(capturedPhoto || uploadedPhoto) ? (
-                <div className="space-y-2">
-                  <p className="text-center text-xs text-gray-600 font-medium">
-                    {capturedPhoto ? '✅ Ảnh đã chụp' : '📷 Ảnh tải lên'}
-                  </p>
-                  <div className="flex gap-1.5 justify-center">
-                    {capturedPhoto ? (
+                <div className="flex flex-wrap gap-0.5 justify-center items-center flex-shrink-0">
+                  {capturedPhoto ? (
+                    <button
+                      onClick={() => {
+                        setCapturedPhoto(null);
+                        setTimeout(() => {
+                          if (videoRef.current) {
+                            const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
+                              setShowCamera(false);
+                              setError(`Lỗi camera: ${errMsg}`);
+                            });
+                            cleanupRef.current = cleanup;
+                          }
+                        }, 100);
+                      }}
+                      className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                    >
+                      📷 Lại
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleUploadImage}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                      >
+                        🖼 Khác
+                      </button>
                       <button
                         onClick={() => {
-                          setCapturedPhoto(null);
+                          setUploadedPhoto(null);
                           setTimeout(() => {
                             if (videoRef.current) {
                               const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
@@ -861,94 +818,62 @@ function EarnPointsPage() {
                             }
                           }, 100);
                         }}
-                        className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap"
                       >
-                        📷 Chụp lại
+                        📷 Mới
                       </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleUploadImage}
-                          className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-                        >
-                          🖼 Ảnh khác
-                        </button>
-                        <button
-                          onClick={() => {
-                            setUploadedPhoto(null);
-                            setTimeout(() => {
-                              if (videoRef.current) {
-                                const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
-                                  setShowCamera(false);
-                                  setError(`Lỗi camera: ${errMsg}`);
-                                });
-                                cleanupRef.current = cleanup;
-                              }
-                            }, 100);
-                          }}
-                          className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-                        >
-                          📷 Chụp mới
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={handleScanFromPhoto}
-                      disabled={scanningPhoto}
-                      className="px-4 py-2 rounded-lg text-xs font-bold text-white transition-all flex items-center gap-1.5"
-                      style={{
-                        background: scanningPhoto
-                          ? '#93c5fd'
-                          : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                        boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.35)',
-                      }}
-                    >
-                      {scanningPhoto ? <Spinner /> : <>🔍 Quét</>}
-                    </button>
-                  </div>
+                    </>
+                  )}
+                  <button
+                    onClick={handleScanFromPhoto}
+                    disabled={scanningPhoto}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-bold text-white transition-all flex items-center gap-0.5 whitespace-nowrap"
+                    style={{
+                      background: scanningPhoto
+                        ? '#93c5fd'
+                        : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                      boxShadow: scanningPhoto ? 'none' : '0 2px 6px rgba(37,99,235,0.25)',
+                    }}
+                  >
+                    {scanningPhoto ? <Spinner /> : <>🔍</>}
+                  </button>
                 </div>
               ) : (
-                <div className="space-y-2 text-center">
-                  <p className="text-xs text-gray-500 font-medium">
-                    📸 Đưa barcode vào khung xanh
-                  </p>
-                  <div className="flex gap-1.5 justify-center">
-                    <button
-                      onClick={handleStopScan}
-                      className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-                    >
-                      ✕ Hủy
-                    </button>
-                    <button
-                      onClick={handleUploadImage}
-                      className="px-3 py-2 rounded-lg text-xs font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1"
-                    >
-                      <Icon icon="zi-photo" /> <span>Ảnh</span>
-                    </button>
-                    <button
-                      onClick={handleCapturePhoto}
-                      className="px-6 py-3 rounded-xl text-sm font-bold text-white flex items-center gap-2 transition-all active:scale-95 hover:shadow-lg"
-                      style={{
-                        background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                        boxShadow: '0 4px 12px rgba(22,163,74,0.4)',
-                      }}
-                    >
-                      <Icon icon="zi-camera" /><span>📷 Chụp</span>
-                    </button>
-                  </div>
+                <div className="flex flex-wrap gap-0.5 justify-center items-center flex-shrink-0">
+                  <button
+                    onClick={handleStopScan}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                  >
+                    ✕ Hủy
+                  </button>
+                  <button
+                    onClick={handleUploadImage}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                  >
+                    🖼 Ảnh
+                  </button>
+                  <button
+                    onClick={handleCapturePhoto}
+                    className="px-2 py-0.5 rounded text-[10px] font-bold text-white flex items-center gap-0.5 transition-all active:scale-95 whitespace-nowrap"
+                    style={{
+                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      boxShadow: '0 2px 6px rgba(22,163,74,0.25)',
+                    }}
+                  >
+                    📷
+                  </button>
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Scan line animation */}
-          <style>{`
-            @keyframes scanLine {
-              0%   { top: 8%;  opacity: 0.8; }
-              50%  { top: 88%; opacity: 1;   }
-              100% { top: 8%;  opacity: 0.8; }
-            }
-          `}</style>
+            <style>{`
+              @keyframes scanLine {
+                0%   { top: 8%;  opacity: 0.8; }
+                50%  { top: 88%; opacity: 1;   }
+                100% { top: 8%;  opacity: 0.8; }
+              }
+            `}</style>
+          </div>
         </div>
       )}
 
@@ -1000,6 +925,7 @@ function EarnPointsPage() {
           </div>
         </div>
       )}
+      </>
 
     </Page>
   );
