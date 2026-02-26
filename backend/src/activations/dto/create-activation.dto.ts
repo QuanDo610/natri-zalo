@@ -22,10 +22,10 @@ class CustomerInfoDto {
 }
 
 export class CreateActivationDto {
-  /** Barcode: 8-20 digits */
+  /** Barcode: Must start with 12N5L, 12N7L, YTX4A, YTX5A, YTX7A OR numeric 8-20 */
   @IsString()
-  @Matches(/^\d{8,20}$/, {
-    message: 'Barcode must be 8-20 digits',
+  @Matches(/^((12N5L|12N7L|YTX4A|YTX5A|YTX7A)[A-Z0-9]*|\d{8,20})$/, {
+    message: 'Barcode không hợp lệ. Cần Natri Ion: 12N5L, 12N7L, YTX4A, YTX5A, YTX7A hoặc numeric 8-20',
   })
   barcode: string;
 

@@ -135,22 +135,62 @@ export const mockApi = {
 
   createActivation: async (data: ActivationRequest): Promise<ActivationResponse> => {
     await delay(600);
-    const item = barcodeItems.find((b) => b.barcode === data.barcode);
-    if (!item) throw { statusCode: 400, message: `Barcode "${data.barcode}" not found` };
-    if (item.activated) throw { statusCode: 409, message: `Barcode "${data.barcode}" has already been activated` };
+    const barcode = data.barcode.trim().toUpperCase();
 
+    // 1. Validate barcode format (must start with 5 valid product codes)
+    const VALID_PREFIXES = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
+    const prefix5 = barcode.substring(0, 5);
+    
+    if (!VALID_PREFIXES.includes(prefix5)) {
+      throw { statusCode: 400, message: `Barcode phải bắt đầu bằng: ${VALID_PREFIXES.join(', ')}` };
+    }
+
+    // 2. Check if barcode already activated (duplicate activation)
+    const alreadyActivated = activationHistory.some((a) => a.barcodeItem.barcode === barcode);
+    if (alreadyActivated) {
+      throw { statusCode: 409, message: `Barcode đã được tích điểm trước đó` };
+    }
+
+    // 3. Validate phone format
+    if (!/^0(3|5|7|8|9)\d{8}$/.test(data.customer.phone)) {
+      throw { statusCode: 400, message: 'Số điện thoại không hợp lệ (VD: 0901234567)' };
+    }
+
+    // 4. Find or create dealer
     let dealer: DealerInfo | undefined;
     if (data.dealerCode) {
       dealer = dealers.find((d) => d.code === data.dealerCode);
-      if (!dealer) throw { statusCode: 404, message: `Dealer with code "${data.dealerCode}" not found` };
-    }
-    if (!/^0(3|5|7|8|9)\d{8}$/.test(data.customer.phone)) {
-      throw { statusCode: 400, message: 'Invalid Vietnamese phone number' };
+      if (!dealer) {
+        throw { statusCode: 404, message: `Dealer không tồn tại` };
+      }
     }
 
+    // 5. Find or create product (based on prefix)
+    const PRODUCT_MAP: Record<string, { sku: string; name: string }> = {
+      '12N5L': { sku: '12N5L', name: 'Bình ắc quy Natri – Ion xe máy số 12N5L' },
+      '12N7L': { sku: '12N7L', name: 'Bình ắc quy Natri Ion xe máy ga 12N7L' },
+      'YTX4A': { sku: 'YTX4A', name: 'Bình ắc quy xe máy Natri Ion YTX4A' },
+      'YTX5A': { sku: 'YTX5A', name: 'Bình ắc quy xe tay ga Natri Ion YTX5A' },
+      'YTX7A': { sku: 'YTX7A', name: 'Bình ắc quy xe tay ga Natri Ion YTX7A' },
+    };
+
+    const productInfo = PRODUCT_MAP[prefix5];
+    let product = products.find((p) => p.sku === productInfo.sku);
+    if (!product) {
+      product = { id: `p_${prefix5}`, name: productInfo.name, sku: productInfo.sku };
+      products.push(product);
+    }
+
+    // 6. Create or update barcode item
+    let item = barcodeItems.find((b) => b.barcode === barcode);
+    if (!item) {
+      item = { barcode, productId: product.id, activated: false, activatedAt: null };
+      barcodeItems.push(item);
+    }
     item.activated = true;
     item.activatedAt = new Date().toISOString();
 
+    // 7. Upsert customer
     let customer = customers.find((c) => c.phone === data.customer.phone);
     if (customer) {
       customer.name = data.customer.name;
@@ -159,13 +199,14 @@ export const mockApi = {
       customer = { id: `c${customers.length + 1}`, name: data.customer.name, phone: data.customer.phone, points: 1, activations: [] };
       customers.push(customer);
     }
+
+    // 8. Increment dealer points
     if (dealer) dealer.points += 1;
 
-    const product = products.find((p) => p.id === item.productId)!;
-
-    // Add to history
+    // 9. Add to history
+    const activationId = `act_${Date.now()}`;
     activationHistory.unshift({
-      id: `act_${Date.now()}`,
+      id: activationId,
       pointsAwarded: 1,
       createdAt: item.activatedAt,
       product: { name: product.name, sku: product.sku },
@@ -175,7 +216,7 @@ export const mockApi = {
     });
 
     return {
-      activationId: `act_${Date.now()}`,
+      activationId,
       product: { id: product.id, name: product.name, sku: product.sku },
       customerPointsAfter: customer.points,
       dealerPointsAfter: dealer?.points ?? null,

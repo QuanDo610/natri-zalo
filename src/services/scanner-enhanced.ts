@@ -63,31 +63,25 @@ export function isValidBarcode(barcode: string): boolean {
     length: trimmed.length
   });
   
-  // Accept any alphanumeric barcode with reasonable length
-  // Check for battery prefixes first (preferred)
-  if (/^[A-Z0-9]{8,40}$/.test(trimmed)) {
-    const hasValidPrefix = VALID_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
-    
-    if (hasValidPrefix) {
-      console.log('✅ Valid battery barcode with known prefix');
-      return true;
-    }
-    
-    // Also accept other reasonable alphanumeric codes (flexible mode)
-    if (trimmed.length >= 12 && trimmed.length <= 40) {
-      console.log('✅ Valid alphanumeric barcode (flexible mode)');
+  // ✅ PRIMARY: Accept any barcode starting with 5 valid battery product codes
+  const hasValidPrefix = VALID_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+  if (hasValidPrefix) {
+    // Must be at least 8 chars total (prefix length + at least 3 more)
+    if (trimmed.length >= 8) {
+      console.log('✅ Valid battery barcode with known prefix:', trimmed.substring(0, 5));
       return true;
     }
   }
   
-  // Backward compatibility: numeric barcodes
+  // 📊 FALLBACK: Accept numeric barcodes (8-20 digits)
   const isNumeric = /^\d{8,20}$/.test(trimmed);
   if (isNumeric) {
-    console.log('📊 Valid numeric barcode (legacy format)');
+    console.log('📊 Valid numeric barcode:', trimmed);
     return true;
   }
   
-  console.log('❌ Barcode validation failed');
+  // ❌ Otherwise invalid
+  console.log('❌ Barcode validation failed:', trimmed);
   return false;
 }
 
@@ -457,6 +451,44 @@ export type ScannerError =
 
 // ── Camera controls ──────────────────────────────────────────────
 let currentControls: IScannerControls | null = null;
+let currentPreviewStream: MediaStream | null = null;
+
+/** Apply zoom level to the current camera preview (1.0 = normal, 2.0 = 2x zoom, etc.) */
+export async function setPreviewZoom(level: number): Promise<void> {
+  if (!currentPreviewStream) return;
+  const track = currentPreviewStream.getVideoTracks()[0];
+  if (!track) return;
+  try {
+    const capabilities = track.getCapabilities() as any;
+    if (capabilities?.zoom) {
+      const { min, max } = capabilities.zoom;
+      const clamped = Math.max(min, Math.min(max, level));
+      await track.applyConstraints({ advanced: [{ zoom: clamped } as any] });
+    }
+  } catch {
+    // Zoom not supported on this device/browser
+  }
+}
+
+/** Get zoom capabilities of current camera (returns null if zoom not supported) */
+export function getZoomCapabilities(): { min: number; max: number; step: number } | null {
+  if (!currentPreviewStream) return null;
+  const track = currentPreviewStream.getVideoTracks()[0];
+  if (!track) return null;
+  try {
+    const capabilities = track.getCapabilities() as any;
+    if (capabilities?.zoom) {
+      return {
+        min: capabilities.zoom.min ?? 1,
+        max: Math.min(capabilities.zoom.max ?? 5, 5),
+        step: capabilities.zoom.step ?? 0.1,
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 export function startScan(
   videoElement: HTMLVideoElement,
@@ -532,6 +564,13 @@ export function startCameraPreview(
 ): () => void {
   const cleanup = () => {
     stopScan();
+    if (currentPreviewStream) {
+      currentPreviewStream.getTracks().forEach((t) => t.stop());
+      currentPreviewStream = null;
+    }
+    if (videoElement) {
+      videoElement.srcObject = null;
+    }
   };
 
   // Check HTTPS requirement
@@ -550,13 +589,25 @@ export function startCameraPreview(
 
   (async () => {
     try {
+      // Stop old stream first
+      if (currentPreviewStream) {
+        currentPreviewStream.getTracks().forEach((t) => t.stop());
+        currentPreviewStream = null;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
       });
+      currentPreviewStream = stream;
       videoElement.srcObject = stream;
       await videoElement.play();
     } catch (error: any) {
       console.error('Camera preview error:', error);
+      currentPreviewStream = null;
       
       if (error.name === 'NotAllowedError') {
         onError('PERMISSION_DENIED', 'Quyền camera bị từ chối');

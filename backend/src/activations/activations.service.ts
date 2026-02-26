@@ -12,37 +12,47 @@ export class ActivationsService {
   constructor(private prisma: PrismaService) {}
 
   /**
-   * Core activation logic — runs inside a DB transaction to ensure atomicity.
-   *
+   * Core activation logic — only validate barcode format
+   * 
    * Steps:
-   * 1. Find barcode item (must exist, must not be activated)
-   * 2. Upsert customer by phone
-   * 3. Optionally find dealer by code
-   * 4. Mark barcode as activated
-   * 5. Increment customer points
-   * 6. Increment dealer points (if applicable)
+   * 1. Validate barcode format (must start with 5 valid product codes)
+   * 2. Check if barcode already activated (avoid duplicate points)
+   * 3. Upsert customer
+   * 4. Find or create product (based on prefix)
+   * 5. Create barcode item if not exist
+   * 6. Find dealer (if provided)
    * 7. Create activation record
-   * 8. Write audit log
+   * 8. Increment points
    */
   async createActivation(dto: CreateActivationDto, staffId?: string | null) {
+    const barcode = dto.barcode.trim().toUpperCase();
+
+    // 1. Validate barcode format
+    const VALID_PREFIXES = ['12N5L', '12N7L', 'YTX4A', 'YTX5A', 'YTX7A'];
+    const prefix5 = barcode.substring(0, 5);
+    
+    if (!VALID_PREFIXES.includes(prefix5)) {
+      throw new BadRequestException(
+        `Barcode phải bắt đầu bằng: ${VALID_PREFIXES.join(', ')}`,
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      // 1. Find barcode item
-      const barcodeItem = await tx.barcodeItem.findUnique({
-        where: { barcode: dto.barcode },
-        include: { product: true },
+      // 2. Check if barcode already activated
+      const alreadyActivated = await tx.activation.findFirst({
+        where: {
+          barcodeItem: { barcode },
+        },
+        select: { id: true },
       });
 
-      if (!barcodeItem) {
-        throw new BadRequestException(`Barcode "${dto.barcode}" not found`);
-      }
-
-      if (barcodeItem.activated) {
+      if (alreadyActivated) {
         throw new ConflictException(
-          `Barcode "${dto.barcode}" has already been activated`,
+          `Barcode đã được tích điểm trước đó`,
         );
       }
 
-      // 2. Upsert customer
+      // 3. Upsert customer
       const customer = await tx.customer.upsert({
         where: { phone: dto.customer.phone },
         update: { name: dto.customer.name },
@@ -52,47 +62,86 @@ export class ActivationsService {
         },
       });
 
-      // 3. Find dealer (optional)
+      // 4. Find or create product
+      const PRODUCT_MAP: Record<string, { sku: string; name: string }> = {
+        '12N5L': { sku: '12N5L', name: 'Bình ắc quy Natri – Ion xe máy số 12N5L' },
+        '12N7L': { sku: '12N7L', name: 'Bình ắc quy Natri Ion xe máy ga 12N7L' },
+        'YTX4A': { sku: 'YTX4A', name: 'Bình ắc quy xe máy Natri Ion YTX4A' },
+        'YTX5A': { sku: 'YTX5A', name: 'Bình ắc quy xe tay ga Natri Ion YTX5A' },
+        'YTX7A': { sku: 'YTX7A', name: 'Bình ắc quy xe tay ga Natri Ion YTX7A' },
+      };
+
+      const productInfo = PRODUCT_MAP[prefix5];
+      
+      let product = await tx.product.findFirst({
+        where: { sku: productInfo.sku },
+      });
+
+      if (!product) {
+        product = await tx.product.create({
+          data: {
+            name: productInfo.name,
+            sku: productInfo.sku,
+            barcode: prefix5,
+          },
+        });
+      }
+
+      // 5. Create barcode item if not exist, otherwise mark as used
+      let barcodeItem = await tx.barcodeItem.findUnique({
+        where: { barcode },
+        select: { id: true },
+      });
+
+      if (!barcodeItem) {
+        barcodeItem = await tx.barcodeItem.create({
+          data: {
+            barcode,
+            productId: product.id,
+            status: 'USED',
+            activated: true,
+            activatedAt: new Date(),
+            usedById: staffId || null,
+          },
+          select: { id: true },
+        });
+      } else {
+        // Barcode exists but not activated yet - mark it
+        barcodeItem = await tx.barcodeItem.update({
+          where: { id: barcodeItem.id },
+          data: {
+            status: 'USED',
+            activated: true,
+            activatedAt: new Date(),
+            usedById: staffId || null,
+          },
+          select: { id: true },
+        });
+      }
+
+      // 6. Find dealer (optional)
       let dealer: any = null;
+      let updatedDealer: any = null;
+      
       if (dto.dealerCode) {
         dealer = await tx.dealer.findUnique({
           where: { code: dto.dealerCode },
+          select: { id: true, active: true, points: true },
         });
+
         if (!dealer) {
-          throw new NotFoundException(
-            `Dealer with code "${dto.dealerCode}" not found`,
-          );
+          throw new NotFoundException(`Dealer không tồn tại`);
         }
+
         if (!dealer.active) {
-          throw new BadRequestException(
-            `Dealer "${dto.dealerCode}" is inactive`,
-          );
+          throw new BadRequestException(`Dealer không hoạt động`);
         }
-      }
 
-      // 4. Mark barcode as activated
-      await tx.barcodeItem.update({
-        where: { id: barcodeItem.id },
-        data: {
-          activated: true,
-          activatedAt: new Date(),
-          status: 'USED',
-          usedById: staffId || null,
-        },
-      });
-
-      // 5. Increment customer points
-      const updatedCustomer = await tx.customer.update({
-        where: { id: customer.id },
-        data: { points: { increment: 1 } },
-      });
-
-      // 6. Increment dealer points (if applicable)
-      let updatedDealer: any = null;
-      if (dealer) {
+        // Increment dealer points
         updatedDealer = await tx.dealer.update({
           where: { id: dealer.id },
           data: { points: { increment: 1 } },
+          select: { id: true, points: true },
         });
       }
 
@@ -103,12 +152,20 @@ export class ActivationsService {
           customerId: customer.id,
           dealerId: dealer?.id || null,
           staffId: staffId || null,
-          productId: barcodeItem.productId,
+          productId: product.id,
           pointsAwarded: 1,
         },
+        select: { id: true },
       });
 
-      // 8. Audit log
+      // 8. Increment customer points
+      const updatedCustomer = await tx.customer.update({
+        where: { id: customer.id },
+        data: { points: { increment: 1 } },
+        select: { points: true },
+      });
+
+      // Audit log
       await tx.auditLog.create({
         data: {
           action: 'ACTIVATION_CREATED',
@@ -116,12 +173,10 @@ export class ActivationsService {
           entityId: activation.id,
           userId: staffId || null,
           metadata: {
-            barcode: dto.barcode,
-            customerPhone: dto.customer.phone,
-            customerName: dto.customer.name,
-            dealerCode: dto.dealerCode || null,
-            productName: barcodeItem.product.name,
-            productSku: barcodeItem.product.sku,
+            barcode,
+            productSku: product.sku,
+            productName: product.name,
+            customer: dto.customer.name,
           },
         },
       });
@@ -129,9 +184,9 @@ export class ActivationsService {
       return {
         activationId: activation.id,
         product: {
-          id: barcodeItem.product.id,
-          name: barcodeItem.product.name,
-          sku: barcodeItem.product.sku,
+          id: product.id,
+          name: product.name,
+          sku: product.sku,
         },
         customerPointsAfter: updatedCustomer.points,
         dealerPointsAfter: updatedDealer?.points ?? null,
