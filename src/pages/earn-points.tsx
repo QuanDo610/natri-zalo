@@ -623,39 +623,38 @@ function EarnPointsPage() {
         </div>
       </div>
 
-      {/* ── Camera Modal (bottom sheet) ── */}
+      {/* ── Camera Modal (centered) ── */}
       {showCamera && (
         <div
-          className="fixed inset-0 flex items-end justify-center z-50"
-          style={{ background: 'rgba(0,0,0,0.80)' }}
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{ background: 'rgba(0,0,0,0.90)' }}
         >
           <div
-            className="bg-white rounded-t-3xl w-full"
-            style={{ maxWidth: 480, boxShadow: '0 -8px 40px rgba(0,0,0,0.4)' }}
+            className="bg-white rounded-3xl w-full"
+            style={{ maxWidth: 520, maxHeight: '90vh', boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}
           >
-            {/* Handle bar */}
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            {/* No handle bar needed for centered modal */}
+            <div className="flex justify-end pt-2 px-4">
+              <button
+                onClick={handleStopScan}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="px-4 pb-6 space-y-3">
+            <div className="px-4 pb-4 space-y-3">
               {/* Title row */}
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-gray-800 text-base">
+              <div className="text-center">
+                <span className="font-bold text-gray-800 text-xl">
                   {(capturedPhoto || uploadedPhoto) ? '🔍 Xem lại ảnh' : '📷 Chụp barcode'}
                 </span>
-                <button
-                  onClick={handleStopScan}
-                  className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
-                >
-                  ✕
-                </button>
               </div>
 
-              {/* Camera / photo view */}
+              {/* Camera / photo view - LARGER & CENTERED */}
               <div
-                className="relative rounded-2xl overflow-hidden bg-black"
-                style={{ aspectRatio: '4/3' }}
+                className="relative rounded-2xl overflow-hidden bg-black mx-auto"
+                style={{ aspectRatio: '3/4', maxWidth: '100%', width: '100%' }}
               >
                 {(capturedPhoto || uploadedPhoto) ? (
                   <img
@@ -672,18 +671,18 @@ function EarnPointsPage() {
                       muted
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
-                    {/* Animated scan-frame overlay */}
+                    {/* Animated scan-frame overlay - ADJUSTED FOR PORTRAIT */}
                     <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
-                      <div className="relative" style={{ width: '72%', height: '42%' }}>
-                        <div className="absolute top-0 left-0 w-7 h-7 border-t-4 border-l-4 border-green-400 rounded-tl-lg" />
-                        <div className="absolute top-0 right-0 w-7 h-7 border-t-4 border-r-4 border-green-400 rounded-tr-lg" />
-                        <div className="absolute bottom-0 left-0 w-7 h-7 border-b-4 border-l-4 border-green-400 rounded-bl-lg" />
-                        <div className="absolute bottom-0 right-0 w-7 h-7 border-b-4 border-r-4 border-green-400 rounded-br-lg" />
+                      <div className="relative" style={{ width: '80%', height: '50%' }}>
+                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-green-400 rounded-tl-lg" />
+                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-green-400 rounded-tr-lg" />
+                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-green-400 rounded-bl-lg" />
+                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-green-400 rounded-br-lg" />
                         <div
-                          className="absolute left-2 right-2 h-0.5 bg-green-400 rounded-full"
+                          className="absolute left-2 right-2 h-1 bg-green-400 rounded-full"
                           style={{
                             animation: 'scanLine 1.8s ease-in-out infinite',
-                            boxShadow: '0 0 8px 2px rgba(74,222,128,0.7)',
+                            boxShadow: '0 0 12px 3px rgba(74,222,128,0.8)',
                           }}
                         />
                       </div>
@@ -692,7 +691,7 @@ function EarnPointsPage() {
                     <div
                       className="absolute inset-0"
                       style={{
-                        background: 'radial-gradient(ellipse 72% 42% at center, transparent 86%, rgba(0,0,0,0.55) 100%)',
+                        background: 'radial-gradient(ellipse 80% 50% at center, transparent 85%, rgba(0,0,0,0.6) 100%)',
                         pointerEvents: 'none',
                       }}
                     />
@@ -702,10 +701,10 @@ function EarnPointsPage() {
 
               {/* Zoom slider — only when live preview and zoom supported */}
               {!capturedPhoto && !uploadedPhoto && zoomCaps && (
-                <div className="space-y-1 px-1">
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>🔭 Zoom</span>
-                    <span className="font-semibold text-blue-600">{zoomLevel.toFixed(1)}×</span>
+                <div className="space-y-2 px-2 py-2 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between text-xs text-gray-600">
+                    <span className="font-semibold">🔭 Zoom</span>
+                    <span className="font-bold text-blue-600">{zoomLevel.toFixed(1)}×</span>
                   </div>
                   <input
                     type="range"
@@ -718,7 +717,7 @@ function EarnPointsPage() {
                       setZoomLevel(val);
                       setPreviewZoom(val);
                     }}
-                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
                     style={{ accentColor: '#3b82f6' }}
                   />
                 </div>
@@ -726,12 +725,11 @@ function EarnPointsPage() {
 
               {/* Action buttons */}
               {(capturedPhoto || uploadedPhoto) ? (
-                <div className="space-y-2">
-                  <p className="text-center text-xs text-gray-500">
-                    {capturedPhoto ? 'Ảnh đã chụp.' : 'Ảnh đã tải lên.'}{' '}
-                    Nhấn <b>Quét barcode</b> hoặc thử lại.
+                <div className="space-y-3">
+                  <p className="text-center text-xs text-gray-600 font-medium">
+                    {capturedPhoto ? '✅ Ảnh đã chụp' : '📷 Ảnh đã tải lên'} · Chọn hành động tiếp theo
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 justify-center">
                     {capturedPhoto ? (
                       <button
                         onClick={() => {
@@ -746,7 +744,7 @@ function EarnPointsPage() {
                             }
                           }, 100);
                         }}
-                        className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                       >
                         📷 Chụp lại
                       </button>
@@ -754,7 +752,7 @@ function EarnPointsPage() {
                       <>
                         <button
                           onClick={handleUploadImage}
-                          className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                           🖼 Ảnh khác
                         </button>
@@ -771,7 +769,7 @@ function EarnPointsPage() {
                               }
                             }, 100);
                           }}
-                          className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
+                          className="px-4 py-2.5 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                           📷 Chụp mới
                         </button>
@@ -780,7 +778,7 @@ function EarnPointsPage() {
                     <button
                       onClick={handleScanFromPhoto}
                       disabled={scanningPhoto}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+                      className="px-6 py-2.5 rounded-xl text-sm font-bold text-white transition-all flex items-center gap-2"
                       style={{
                         background: scanningPhoto
                           ? '#93c5fd'
@@ -788,37 +786,37 @@ function EarnPointsPage() {
                         boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.35)',
                       }}
                     >
-                      {scanningPhoto ? <Spinner /> : '🔍 Quét'}
+                      {scanningPhoto ? <Spinner /> : <>🔍 Quét</>}
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <p className="text-center text-xs text-gray-500">
-                    Đưa barcode vào khung xanh rồi nhấn <b>Chụp</b>
+                <div className="space-y-3 text-center">
+                  <p className="text-xs text-gray-500 font-medium">
+                    📸 Đưa barcode vào khung xanh rồi nhấn <span className="text-green-600">Chụp</span>
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 justify-center">
                     <button
                       onClick={handleStopScan}
-                      className="flex-1 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+                      className="px-4 py-3 rounded-xl text-sm font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
                     >
-                      Hủy
+                      ✕ Hủy
                     </button>
                     <button
                       onClick={handleUploadImage}
-                      className="py-3 px-4 rounded-xl text-sm font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+                      className="px-4 py-3 rounded-xl text-sm font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1"
                     >
-                      <Icon icon="zi-photo" />
+                      <Icon icon="zi-photo" /> <span>Ảnh</span>
                     </button>
                     <button
                       onClick={handleCapturePhoto}
-                      className="flex-1 py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                      className="px-6 py-3 rounded-xl text-sm font-bold text-white flex items-center gap-2 transition-all active:scale-95 hover:shadow-lg"
                       style={{
                         background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                        boxShadow: '0 4px 12px rgba(22,163,74,0.35)',
+                        boxShadow: '0 4px 12px rgba(22,163,74,0.4)',
                       }}
                     >
-                      <Icon icon="zi-camera" /><span>Chụp</span>
+                      <Icon icon="zi-camera" /><span>📷 Chụp</span>
                     </button>
                   </div>
                 </div>
