@@ -647,99 +647,81 @@ function EarnPointsPage() {
 
       {/* Camera Modal + Error Modal Wrapper */}
       <>
-        {/* ── Camera Modal (fullscreen-ish overlay) ── */}
+        {/* ── Camera Popup Modal ── */}
         {showCamera && (
         <div
-          className="fixed inset-0 z-50 flex flex-col"
-          style={{ background: '#000' }}
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={handleStopScan}
         >
-          {/* Top bar */}
-          <div className="flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-sm">
-            <span className="font-semibold text-white text-sm">
-              {(capturedPhoto || uploadedPhoto) ? '🔍 Xem ảnh' : '📷 Quét barcode'}
-            </span>
-            <button
-              onClick={handleStopScan}
-              className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Toast notification */}
-          {scanToast && (
-            <div
-              className={`mx-4 mt-2 px-3 py-2 rounded-xl flex items-center gap-2 text-sm font-medium animate-in fade-in slide-in-from-top-2 duration-300 ${
-                scanToast.type === 'error'
-                  ? 'bg-red-500/90 text-white'
-                  : scanToast.type === 'warning'
-                  ? 'bg-yellow-500/90 text-white'
-                  : 'bg-green-500/90 text-white'
-              }`}
-            >
-              <span className="flex-shrink-0">
-                {scanToast.type === 'error' ? '❌' : scanToast.type === 'warning' ? '⚠️' : '✅'}
+          <div
+            className="bg-white rounded-2xl w-[92%] max-w-md overflow-hidden flex flex-col"
+            style={{ maxHeight: '80vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <span className="font-semibold text-gray-800 text-sm">
+                {(capturedPhoto || uploadedPhoto) ? '🔍 Xem ảnh' : '📷 Quét barcode'}
               </span>
-              <span className="flex-1 leading-tight">{scanToast.message}</span>
+              <button
+                onClick={handleStopScan}
+                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors text-xs"
+              >
+                ✕
+              </button>
             </div>
-          )}
 
-          {/* Camera / photo view — fills available space */}
-          <div className="flex-1 flex items-center justify-center overflow-hidden p-4">
-            <div
-              className="relative rounded-2xl overflow-hidden bg-black w-full h-full max-w-lg"
-            >
-              {(capturedPhoto || uploadedPhoto) ? (
-                <img
-                  src={capturedPhoto || uploadedPhoto || ''}
-                  alt="Barcode preview"
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                />
-              )}
-            </div>
-          </div>
+            {/* Toast notification */}
+            {scanToast && (
+              <div
+                className={`mx-3 mt-2 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2 duration-300 ${
+                  scanToast.type === 'error'
+                    ? 'bg-red-50 border border-red-200 text-red-700'
+                    : scanToast.type === 'warning'
+                    ? 'bg-yellow-50 border border-yellow-200 text-yellow-700'
+                    : 'bg-green-50 border border-green-200 text-green-700'
+                }`}
+              >
+                <span className="flex-shrink-0">
+                  {scanToast.type === 'error' ? '❌' : scanToast.type === 'warning' ? '⚠️' : '✅'}
+                </span>
+                <span className="flex-1 leading-tight">{scanToast.message}</span>
+              </div>
+            )}
 
-          {/* Bottom action bar */}
-          <div className="px-4 pb-6 pt-3 bg-black/80 backdrop-blur-sm">
-            {(capturedPhoto || uploadedPhoto) ? (
-              <div className="flex gap-3 max-w-lg mx-auto">
-                {capturedPhoto ? (
-                  <button
-                    onClick={() => {
-                      setCapturedPhoto(null);
-                      setTimeout(() => {
-                        if (videoRef.current) {
-                          const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
-                            setShowCamera(false);
-                            setError(`Lỗi camera: ${errMsg}`);
-                          });
-                          cleanupRef.current = cleanup;
-                        }
-                      }, 100);
-                    }}
-                    className="flex-1 py-3 rounded-xl text-sm font-semibold border border-white/30 text-white hover:bg-white/10 transition-colors active:scale-95"
-                  >
-                    📷 Chụp lại
-                  </button>
+            {/* Camera / photo view */}
+            <div className="px-3 pt-3">
+              <div
+                className="relative rounded-xl overflow-hidden bg-black"
+                style={{ aspectRatio: '4/3' }}
+              >
+                {(capturedPhoto || uploadedPhoto) ? (
+                  <img
+                    src={capturedPhoto || uploadedPhoto || ''}
+                    alt="Barcode preview"
+                    className="w-full h-full object-contain"
+                  />
                 ) : (
-                  <>
-                    <button
-                      onClick={handleUploadImage}
-                      className="flex-1 py-3 rounded-xl text-sm font-semibold border border-white/30 text-white hover:bg-white/10 transition-colors active:scale-95"
-                    >
-                      🖼 Ảnh khác
-                    </button>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="px-3 py-3">
+              {(capturedPhoto || uploadedPhoto) ? (
+                <div className="flex gap-2">
+                  {capturedPhoto ? (
                     <button
                       onClick={() => {
-                        setUploadedPhoto(null);
+                        setCapturedPhoto(null);
                         setTimeout(() => {
                           if (videoRef.current) {
                             const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
@@ -750,52 +732,78 @@ function EarnPointsPage() {
                           }
                         }, 100);
                       }}
-                      className="flex-1 py-3 rounded-xl text-sm font-semibold border border-white/30 text-white hover:bg-white/10 transition-colors active:scale-95"
+                      className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
                     >
-                      📷 Chụp mới
+                      📷 Chụp lại
                     </button>
-                  </>
-                )}
-                <button
-                  onClick={handleScanFromPhoto}
-                  disabled={scanningPhoto}
-                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
-                  style={{
-                    background: scanningPhoto
-                      ? '#93c5fd'
-                      : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                    boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.4)',
-                  }}
-                >
-                  {scanningPhoto ? <Spinner /> : '🔍 Quét barcode'}
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-3 max-w-lg mx-auto">
-                <button
-                  onClick={handleStopScan}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold border border-white/30 text-white hover:bg-white/10 transition-colors active:scale-95"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleUploadImage}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold border border-white/30 text-white hover:bg-white/10 transition-colors active:scale-95"
-                >
-                  🖼 Upload ảnh
-                </button>
-                <button
-                  onClick={handleCapturePhoto}
-                  className="flex-1 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
-                  style={{
-                    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                    boxShadow: '0 4px 12px rgba(22,163,74,0.35)',
-                  }}
-                >
-                  📷 Chụp ảnh
-                </button>
-              </div>
-            )}
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleUploadImage}
+                        className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
+                      >
+                        🖼 Ảnh khác
+                      </button>
+                      <button
+                        onClick={() => {
+                          setUploadedPhoto(null);
+                          setTimeout(() => {
+                            if (videoRef.current) {
+                              const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
+                                setShowCamera(false);
+                                setError(`Lỗi camera: ${errMsg}`);
+                              });
+                              cleanupRef.current = cleanup;
+                            }
+                          }, 100);
+                        }}
+                        className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
+                      >
+                        📷 Chụp mới
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={handleScanFromPhoto}
+                    disabled={scanningPhoto}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
+                    style={{
+                      background: scanningPhoto
+                        ? '#93c5fd'
+                        : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                      boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.3)',
+                    }}
+                  >
+                    {scanningPhoto ? <Spinner /> : '🔍 Quét'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleStopScan}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors active:scale-95"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    onClick={handleUploadImage}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors active:scale-95"
+                  >
+                    🖼 Upload
+                  </button>
+                  <button
+                    onClick={handleCapturePhoto}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
+                    style={{
+                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      boxShadow: '0 4px 12px rgba(22,163,74,0.3)',
+                    }}
+                  >
+                    📷 Chụp
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
