@@ -485,21 +485,6 @@ function BarcodeManagePage() {
                     minHeight: 240,
                   }}
                 />
-                {/* Scan frame guide */}
-                <Box
-                  className="absolute inset-0 flex items-center justify-center"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  <Box
-                    style={{
-                      width: '70%',
-                      height: '40%',
-                      border: '2px solid rgba(0, 255, 0, 0.8)',
-                      borderRadius: 8,
-                      background: 'rgba(0, 0, 0, 0.1)',
-                    }}
-                  />
-                </Box>
               </Box>
               <Text size="xSmall" className="text-center text-gray-500">
                 Đưa barcode vào khung và chụp ảnh
