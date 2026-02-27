@@ -714,15 +714,59 @@ function EarnPointsPage() {
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                  />
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    
+                    {/* Scanning line animation */}
+                    <div
+                      className="absolute left-0 right-0 h-0.5 bg-gradient-to-b from-green-400 via-green-300 to-transparent"
+                      style={{
+                        top: '30%',
+                        animation: 'scanLine 2s ease-in-out infinite',
+                        boxShadow: '0 0 15px rgba(74,222,128,0.8)',
+                      }}
+                    />
+                    
+                    {/* Focus corner */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div
+                        className="relative"
+                        style={{
+                          width: '70%',
+                          height: '50%',
+                          border: '2px solid rgba(74,222,128,0.6)',
+                          borderRadius: '12px',
+                          animation: 'focusPulse 1.5s ease-in-out infinite',
+                        }}
+                      >
+                        {/* Corner accents */}
+                        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-green-400" />
+                        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-green-400" />
+                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-green-400" />
+                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-green-400" />
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
+
+              <style>{`
+                @keyframes scanLine {
+                  0% { top: 10%; opacity: 0.8; }
+                  50% { top: 80%; opacity: 1; }
+                  100% { top: 10%; opacity: 0.8; }
+                }
+                @keyframes focusPulse {
+                  0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.3); }
+                  50% { box-shadow: 0 0 8px 3px rgba(74,222,128,0.15); }
+                }
+              `}</style>
             </div>
 
             {/* Action buttons */}
