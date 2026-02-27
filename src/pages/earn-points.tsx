@@ -780,9 +780,9 @@ function EarnPointsPage() {
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
                     style={{
                       background: scanningPhoto
-                        ? '#60a5fa'
-                        : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                      boxShadow: scanningPhoto ? '0 2px 8px rgba(96,165,250,0.2)' : '0 4px 12px rgba(37,99,235,0.3)',
+                        ? '#4ade80'
+                        : 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      boxShadow: scanningPhoto ? '0 2px 8px rgba(74,222,128,0.2)' : '0 4px 12px rgba(22,163,74,0.3)',
                     }}
                   >
                     {scanningPhoto ? (
@@ -856,6 +856,12 @@ function EarnPointsPage() {
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2">
               <button
+                onClick={() => setErrorModal(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors active:scale-95"
+              >
+                ✕ Đóng
+              </button>
+              <button
                 onClick={() => {
                   setErrorModal(null);
                   if (errorModal.action.includes('Chụp')) {
@@ -870,20 +876,9 @@ function EarnPointsPage() {
                     fileInputRef.current?.click();
                   }
                 }}
-                className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors active:scale-95"
-              >
-                {errorModal.action}
-              </button>
-              <button
-                onClick={() => {
-                  setErrorModal(null);
-                  setCapturedPhoto(null);
-                  setUploadedPhoto(null);
-                  setShowCamera(true);
-                }}
                 className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-colors active:scale-95"
               >
-                📷 Chụp mới
+                {errorModal.action.includes('Chụp') ? '📷 Chụp mới' : errorModal.action}
               </button>
             </div>
           </div>
