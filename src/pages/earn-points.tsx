@@ -769,7 +769,7 @@ function EarnPointsPage() {
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
                     style={{
                       background: scanningPhoto
-                        ? '#93c5fd'
+                        ? '#6b7280'
                         : 'linear-gradient(135deg, #3b82f6, #2563eb)',
                       boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.3)',
                     }}
