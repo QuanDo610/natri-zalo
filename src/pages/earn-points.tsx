@@ -780,9 +780,9 @@ function EarnPointsPage() {
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
                     style={{
                       background: scanningPhoto
-                        ? '#6b7280'
+                        ? '#60a5fa'
                         : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                      boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.3)',
+                      boxShadow: scanningPhoto ? '0 2px 8px rgba(96,165,250,0.2)' : '0 4px 12px rgba(37,99,235,0.3)',
                     }}
                   >
                     {scanningPhoto ? (
@@ -856,7 +856,20 @@ function EarnPointsPage() {
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2">
               <button
-                onClick={() => setErrorModal(null)}
+                onClick={() => {
+                  setErrorModal(null);
+                  if (errorModal.action.includes('Chụp')) {
+                    // Reset and go back to camera preview
+                    setCapturedPhoto(null);
+                    setUploadedPhoto(null);
+                    setShowCamera(true);
+                  } else if (errorModal.action.includes('ảnh')) {
+                    // Reset and open upload dialog
+                    setCapturedPhoto(null);
+                    setUploadedPhoto(null);
+                    fileInputRef.current?.click();
+                  }
+                }}
                 className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors active:scale-95"
               >
                 {errorModal.action}
@@ -864,6 +877,8 @@ function EarnPointsPage() {
               <button
                 onClick={() => {
                   setErrorModal(null);
+                  setCapturedPhoto(null);
+                  setUploadedPhoto(null);
                   setShowCamera(true);
                 }}
                 className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-colors active:scale-95"
