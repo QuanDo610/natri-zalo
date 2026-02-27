@@ -199,14 +199,25 @@ function EarnPointsPage() {
         if (result.barcode && isValidBarcode(result.barcode)) {
           setBarcode(result.barcode);
           handleBarcodeCheck(result.barcode);
-          setShowCamera(false);
-          setCapturedPhoto(null);
+          setScanToast({ type: 'success', message: '✅ Tìm thấy barcode!' });
+          setTimeout(() => {
+            setShowCamera(false);
+            setCapturedPhoto(null);
+          }, 800);
         } else {
-          setError('Không tìm thấy barcode hợp lệ trong ảnh. Vui lòng chụp lại.');
+          setErrorModal({ 
+            title: '❌ Không tìm thấy Barcode', 
+            message: 'Ảnh chụp không chứa barcode rõ nét hoặc đọc được.\n\nVui lòng chụp lại với camera.',
+            action: 'Chụp mới'
+          });
         }
       } catch (err) {
         console.error('Scan error:', err);
-        setError('Không thể quét barcode từ ảnh. Vui lòng thử lại.');
+        setErrorModal({ 
+          title: '❌ Lỗi quét ảnh', 
+          message: 'Đã xảy ra lỗi khi quét barcode từ ảnh.\n\nVui lòng chụp lại với camera.',
+          action: 'Thử lại'
+        });
       } finally {
         setScanningPhoto(false);
       }
@@ -276,15 +287,15 @@ function EarnPointsPage() {
             if (!found) {
               setErrorModal({ 
                 title: '❌ Không tìm thấy Barcode', 
-                message: 'Ảnh tải lên không chứa barcode rõ nét hoặc đọc được. Vui lòng:\n\n• Thử ảnh khác có barcode rõ hơn\n• Hoặc chụp ảnh mới từ camera\n• Đảm bảo barcode nằm chính giữa ảnh',
-                action: 'Thử lại'
+                message: 'Ảnh tải lên không chứa barcode rõ nét hoặc đọc được.\n\nVui lòng chọn ảnh khác hoặc chụp mới từ camera.',
+                action: 'Thử ảnh khác'
               });
             }
           } catch (err) {
             console.error('Re-scan error:', err);
             setErrorModal({ 
               title: '❌ Lỗi xử lý ảnh', 
-              message: 'Đã xảy ra lỗi khi quét barcode từ ảnh. Vui lòng:\n\n• Kiểm tra kích thước ảnh (không quá lớn)\n• Thử ảnh khác\n• Hoặc chụp ảnh mới từ camera',
+              message: 'Đã xảy ra lỗi khi xử lý ảnh.\n\nVui lòng thử ảnh khác hoặc chụp mới.',
               action: 'Đóng'
             });
           } finally {
@@ -294,7 +305,7 @@ function EarnPointsPage() {
         img.onerror = () => {
           setErrorModal({ 
             title: '❌ Lỗi tải ảnh', 
-            message: 'Không thể tải ảnh đã chọn. Vui lòng:\n\n• Kiểm tra định dạng ảnh (JPG, PNG)\n• Đảm bảo kích thước ảnh hợp lý\n• Thử ảnh khác hoặc chụp ảnh mới',
+            message: 'Không thể tải ảnh đã chọn.\n\nVui lòng kiểm tra định dạng (JPG, PNG) và thử lại.',
             action: 'Đóng'
           });
           setScanningPhoto(false);
@@ -304,7 +315,7 @@ function EarnPointsPage() {
         console.error('Upload scan error:', err);
         setErrorModal({ 
           title: '❌ Lỗi quét ảnh', 
-          message: 'Không thể quét barcode từ ảnh đã tải lên. Vui lòng:\n\n• Chụp ảnh mới với camera (chất lượng tốt hơn)\n• Hoặc thử ảnh khác có barcode rõ hơn',
+          message: 'Không thể quét barcode từ ảnh đã tải lên.\n\nVui lòng thử ảnh khác hoặc chụp mới.',
           action: 'Đóng'
         });
         setScanningPhoto(false);
@@ -774,7 +785,14 @@ function EarnPointsPage() {
                       boxShadow: scanningPhoto ? 'none' : '0 4px 12px rgba(37,99,235,0.3)',
                     }}
                   >
-                    {scanningPhoto ? <Spinner /> : '🔍 Quét'}
+                    {scanningPhoto ? (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <span className="inline-block">🔍</span>
+                        <span className="animate-pulse">Đang quét…</span>
+                      </span>
+                    ) : (
+                      '🔍 Quét'
+                    )}
                   </button>
                 </div>
               ) : (
