@@ -18,7 +18,6 @@ import { api } from '@/services/api-client';
 import {
   stopScan,
   startCameraPreview,
-  startAutoScanFromStream,
   captureAndDecode,
   decodeFromImageFile,
   isValidBarcode,
@@ -53,14 +52,11 @@ function EarnPointsPage() {
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
-  const [autoScanEnabled, setAutoScanEnabled] = useState(true);
-  const [autoScanDetected, setAutoScanDetected] = useState<string | null>(null);
   const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
   const [buttonBusy, setButtonBusy] = useState(false); // Prevent double-click on buttons
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
-  const autoScanCleanupRef = React.useRef<(() => void) | null>(null);
 
 
 
@@ -102,10 +98,6 @@ function EarnPointsPage() {
         cleanupRef.current();
         cleanupRef.current = null;
       }
-      if (autoScanCleanupRef.current) {
-        autoScanCleanupRef.current();
-        autoScanCleanupRef.current = null;
-      }
       stopScan();
     };
   }, []);
@@ -125,29 +117,8 @@ function EarnPointsPage() {
     });
   };
 
-  // Helper: start auto-scan on the current video preview
-  const startAutoScanOnPreview = () => {
-    if (!autoScanEnabled || !videoRef.current) return;
-    // Stop previous auto-scan if any
-    if (autoScanCleanupRef.current) {
-      autoScanCleanupRef.current();
-      autoScanCleanupRef.current = null;
-    }
-    const scanCleanup = startAutoScanFromStream(
-      videoRef.current,
-      (detectedBarcode: string) => {
-        setAutoScanDetected(detectedBarcode);
-        setBarcode(detectedBarcode);
-        handleBarcodeCheck(detectedBarcode);
-        setScanToast({ type: 'success', message: '✅ Tìm thấy barcode qua auto-scan!' });
-      },
-      { intervalMs: 350 },
-    );
-    autoScanCleanupRef.current = scanCleanup;
-  };
-
-  // Helper: open camera preview + auto-scan + auto zoom
-  const openCameraWithAutoScan = () => {
+  // Helper: open camera preview + auto zoom (manual capture only)
+  const openCameraWithZoom = () => {
     if (!videoRef.current) {
       setError('Không thể khởi tạo camera.');
       setShowCamera(false);
@@ -156,14 +127,10 @@ function EarnPointsPage() {
 
     setCssZoom(false); // reset CSS zoom
 
-    // Clean up old stream/scan FIRST before starting new camera
+    // Clean up old stream FIRST before starting new camera
     if (cleanupRef.current) {
       cleanupRef.current();
       cleanupRef.current = null;
-    }
-    if (autoScanCleanupRef.current) {
-      autoScanCleanupRef.current();
-      autoScanCleanupRef.current = null;
     }
 
     // Small delay to ensure cleanup completes
@@ -187,7 +154,7 @@ function EarnPointsPage() {
       );
       cleanupRef.current = cleanup;
 
-      // Wait for camera stream to be ready, then apply zoom + start auto-scan
+      // Wait for camera stream to be ready, then apply zoom
       setTimeout(async () => {
         // Try hardware zoom x3 first
         const hwZoomOk = await setPreviewZoom(3.0);
@@ -196,12 +163,11 @@ function EarnPointsPage() {
           setCssZoom(true);
           console.log('[Scan] Using CSS zoom fallback (scale 2x)');
         }
-        startAutoScanOnPreview();
       }, 700);
     }, 100);
   };
 
-  // ── Camera scanning with auto-detection ──
+  // ── Camera scanning manual capture only ──
   const handleStartScan = () => {
     if (buttonBusy) {
       console.log('[Scan] Button busy, ignoring click');
@@ -214,11 +180,10 @@ function EarnPointsPage() {
       setShowCamera(true);
       setCapturedPhoto(null);
       setUploadedPhoto(null);
-      setAutoScanDetected(null);
       setError(null);
       
       setTimeout(() => {
-        openCameraWithAutoScan();
+        openCameraWithZoom();
         // Release button after camera starts
         setTimeout(() => setButtonBusy(false), 1000);
       }, 100);
@@ -235,15 +200,10 @@ function EarnPointsPage() {
       cleanupRef.current();
       cleanupRef.current = null;  
     }
-    if (autoScanCleanupRef.current) {
-      autoScanCleanupRef.current();
-      autoScanCleanupRef.current = null;
-    }
     stopScan();
     setCapturedPhoto(null);
     setUploadedPhoto(null);
     setShowCamera(false);
-    setAutoScanDetected(null);
   };
 
   // Chụp ảnh từ camera preview
@@ -827,12 +787,9 @@ function EarnPointsPage() {
                 <span className="font-semibold text-gray-800 text-sm block">
                   {(capturedPhoto || uploadedPhoto) ? '🔍 Xem ảnh' : '📷 Quét barcode'}
                 </span>
-                {!capturedPhoto && !uploadedPhoto && autoScanEnabled && (
-                  <span className="text-xs text-green-600 flex items-center gap-1 mt-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse" />
-                    Auto-scan hoạt động
-                  </span>
-                )}
+                <span className="text-xs text-gray-500 mt-0.5 block">
+                  Chụp ảnh để quét barcode
+                </span>
               </div>
               <button
                 onClick={handleStopScan}
@@ -945,7 +902,7 @@ function EarnPointsPage() {
                         setButtonBusy(true);
                         setCapturedPhoto(null);
                         setTimeout(() => {
-                          openCameraWithAutoScan();
+                          openCameraWithZoom();
                           setButtonBusy(false);
                         }, 100);
                       }}
@@ -981,7 +938,7 @@ function EarnPointsPage() {
                           setButtonBusy(true);
                           setUploadedPhoto(null);
                           setTimeout(() => {
-                            openCameraWithAutoScan();
+                            openCameraWithZoom();
                             setButtonBusy(false);
                           }, 100);
                         }}

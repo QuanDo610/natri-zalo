@@ -16,6 +16,8 @@ import {
   parseBarcodePrefix,
   SCANNER_VERSION,
   type ScannerError,
+  setPreviewZoom,
+  getZoomCapabilities,
 } from '@/services/scanner-enhanced';
 import type { ApiError, BarcodeItemInfo } from '@/types';
 
@@ -42,6 +44,7 @@ function BarcodeManagePage() {
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
+  const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [inferredProduct, setInferredProduct] = useState<{ sku: string; productName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -110,6 +113,7 @@ function BarcodeManagePage() {
     setErrorType(null);
     setSuccessMessage('');
     setScanState('previewing');
+    setCssZoom(false); // reset CSS zoom
 
     // Wait for video element to render
     setTimeout(() => {
@@ -132,6 +136,19 @@ function BarcodeManagePage() {
       );
 
       cleanupRef.current = cleanup;
+
+      // Wait for camera stream to be ready, then apply zoom
+      setTimeout(async () => {
+        // Try hardware zoom x3 first
+        const hwZoomOk = await setPreviewZoom(3.0);
+        if (!hwZoomOk) {
+          // Hardware zoom not supported — use CSS transform as visual zoom
+          setCssZoom(true);
+          console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+        } else {
+          console.log('[Scan] Hardware zoom x3 applied');
+        }
+      }, 700);
     }, 100);
   };
 
@@ -483,11 +500,13 @@ function BarcodeManagePage() {
                     height: '100%',
                     objectFit: 'cover',
                     minHeight: 240,
+                    transform: cssZoom ? 'scale(2)' : 'none',
+                    transformOrigin: 'center center',
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-500">
-                Đưa barcode vào khung và chụp ảnh
+                {cssZoom ? '🔍 Đã phóng to 2x - Đưa barcode vào giữa khung và chụp ảnh' : 'Đưa barcode vào khung và chụp ảnh'}
               </Text>
               <Box className="flex gap-2">
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
@@ -526,6 +545,7 @@ function BarcodeManagePage() {
                     onClick={() => {
                       setCapturedPhoto(null);
                       setScanState('previewing');
+                      setCssZoom(false);
                       // Restart camera preview
                       setTimeout(() => {
                         if (videoRef.current) {
@@ -538,6 +558,15 @@ function BarcodeManagePage() {
                             }
                           );
                           cleanupRef.current = cleanup;
+                          
+                          // Re-apply zoom after camera restarts
+                          setTimeout(async () => {
+                            const hwZoomOk = await setPreviewZoom(3.0);
+                            if (!hwZoomOk) {
+                              setCssZoom(true);
+                              console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+                            }
+                          }, 700);
                         }
                       }, 100);
                     }}
@@ -560,6 +589,7 @@ function BarcodeManagePage() {
                       onClick={() => {
                         setUploadedPhoto(null);
                         setScanState('previewing');
+                        setCssZoom(false);
                         // Restart camera preview
                         setTimeout(() => {
                           if (videoRef.current) {
@@ -572,6 +602,15 @@ function BarcodeManagePage() {
                               }
                             );
                             cleanupRef.current = cleanup;
+                            
+                            // Re-apply zoom after camera restarts
+                            setTimeout(async () => {
+                              const hwZoomOk = await setPreviewZoom(3.0);
+                              if (!hwZoomOk) {
+                                setCssZoom(true);
+                                console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+                              }
+                            }, 700);
                           }
                         }, 100);
                       }}
