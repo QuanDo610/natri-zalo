@@ -56,6 +56,7 @@ function EarnPointsPage() {
   const [autoScanEnabled, setAutoScanEnabled] = useState(true);
   const [autoScanDetected, setAutoScanDetected] = useState<string | null>(null);
   const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
+  const [buttonBusy, setButtonBusy] = useState(false); // Prevent double-click on buttons
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
@@ -202,12 +203,31 @@ function EarnPointsPage() {
 
   // ── Camera scanning with auto-detection ──
   const handleStartScan = () => {
-    setShowCamera(true);
-    setCapturedPhoto(null);
-    setUploadedPhoto(null);
-    setAutoScanDetected(null);
-    setError(null);
-    setTimeout(() => openCameraWithAutoScan(), 100);
+    if (buttonBusy) {
+      console.log('[Scan] Button busy, ignoring click');
+      return;
+    }
+    
+    try {
+      console.log('[Scan] Opening camera...');
+      setButtonBusy(true);
+      setShowCamera(true);
+      setCapturedPhoto(null);
+      setUploadedPhoto(null);
+      setAutoScanDetected(null);
+      setError(null);
+      
+      setTimeout(() => {
+        openCameraWithAutoScan();
+        // Release button after camera starts
+        setTimeout(() => setButtonBusy(false), 1000);
+      }, 100);
+    } catch (err) {
+      console.error('[Scan] Error opening camera:', err);
+      setError('Không thể mở camera. Vui lòng thử lại.');
+      setButtonBusy(false);
+      setShowCamera(false);
+    }
   };
 
   const handleStopScan = () => {
@@ -233,20 +253,34 @@ function EarnPointsPage() {
       return;
     }
 
+    if (buttonBusy) {
+      console.log('[Capture] Button busy, ignoring click');
+      return;
+    }
+
     try {
+      console.log('[Capture] Taking photo...');
+      setButtonBusy(true);
+      
       const result = await captureAndDecode(videoRef.current);
       setCapturedPhoto(result.imageData);
       
       // Nếu tìm thấy barcode ngay khi chụp, auto-fill
       if (result.barcode && isValidBarcode(result.barcode)) {
+        console.log('[Capture] Barcode detected:', result.barcode);
         setBarcode(result.barcode);
         handleBarcodeCheck(result.barcode);
         setShowCamera(false);
         setCapturedPhoto(null);
+        setScanToast({ type: 'success', message: '✅ Đã nhận diện barcode từ ảnh!' });
+      } else {
+        console.log('[Capture] No barcode found in photo');
       }
     } catch (err) {
-      console.error('Capture error:', err);
+      console.error('[Capture] Capture error:', err);
       setError('Không thể chụp ảnh. Vui lòng thử lại.');
+    } finally {
+      setButtonBusy(false);
     }
   };
 
@@ -393,7 +427,22 @@ function EarnPointsPage() {
 
   // Upload và quét barcode từ ảnh
   const handleUploadImage = () => {
-    fileInputRef.current?.click();
+    if (buttonBusy || processingUpload) {
+      console.log('[Upload] Button busy, ignoring click');
+      return;
+    }
+    
+    try {
+      console.log('[Upload] Opening file picker...');
+      setButtonBusy(true);
+      fileInputRef.current?.click();
+      // Release button after a short delay
+      setTimeout(() => setButtonBusy(false), 500);
+    } catch (err) {
+      console.error('[Upload] Error opening file picker:', err);
+      setError('Không thể mở chọn ảnh. Vui lòng thử lại.');
+      setButtonBusy(false);
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -467,11 +516,17 @@ function EarnPointsPage() {
 
   const handleSubmit = async () => {
     if (!validate()) return;
-
-    setLoading(true);
-    setError(null);
+    if (loading || buttonBusy) {
+      console.log('[Submit] Already processing, ignoring click');
+      return;
+    }
 
     try {
+      console.log('[Submit] Creating activation...');
+      setLoading(true);
+      setButtonBusy(true);
+      setError(null);
+
       const result = await api.createActivation({
         barcode: barcode.trim(),
         customer: {
@@ -480,11 +535,13 @@ function EarnPointsPage() {
         },
         dealerCode: dealerCode || undefined,
       });
+      
+      console.log('[Submit] Success:', result);
       setLastActivation(result);
       navigate('/result');
     } catch (err) {
       const apiErr = err as ApiError;
-      console.error('Activation error:', apiErr);
+      console.error('[Submit] Activation error:', apiErr);
       
       if (apiErr.statusCode === 409) {
         setError('✅ Barcode đã được tích điểm trước đó!');
@@ -497,6 +554,7 @@ function EarnPointsPage() {
       }
     } finally {
       setLoading(false);
+      setButtonBusy(false);
     }
   };
 
@@ -570,23 +628,41 @@ function EarnPointsPage() {
             {/* Camera */}
             <button
               onClick={handleScan}
-              disabled={showCamera || processingUpload}
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-white transition-all"
+              onTouchStart={(e) => {
+                // Touch feedback for mobile
+                e.currentTarget.style.transform = 'scale(0.95)';
+              }}
+              onTouchEnd={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              disabled={showCamera || processingUpload || buttonBusy}
+              className="w-11 h-11 rounded-xl flex items-center justify-center text-white transition-all active:scale-95"
               style={{
-                background: (showCamera || processingUpload)
+                background: (showCamera || processingUpload || buttonBusy)
                   ? '#93c5fd'
                   : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                boxShadow: (showCamera || processingUpload) ? 'none' : '0 4px 10px rgba(37,99,235,0.3)',
+                boxShadow: (showCamera || processingUpload || buttonBusy) ? 'none' : '0 4px 10px rgba(37,99,235,0.3)',
+                cursor: (showCamera || processingUpload || buttonBusy) ? 'not-allowed' : 'pointer',
               }}
               title="Chụp ảnh barcode"
             >
-              <Icon icon="zi-camera" />
+              {buttonBusy && !showCamera ? <Spinner /> : <Icon icon="zi-camera" />}
             </button>
             {/* Upload */}
             <button
               onClick={handleUploadImage}
-              disabled={showCamera || processingUpload}
-              className="w-11 h-11 rounded-xl border border-blue-200 bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-all"
+              onTouchStart={(e) => {
+                e.currentTarget.style.transform = 'scale(0.95)';
+              }}
+              onTouchEnd={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              disabled={showCamera || processingUpload || buttonBusy}
+              className="w-11 h-11 rounded-xl border border-blue-200 bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-all active:scale-95"
+              style={{
+                cursor: (showCamera || processingUpload || buttonBusy) ? 'not-allowed' : 'pointer',
+                opacity: (showCamera || processingUpload || buttonBusy) ? 0.5 : 1,
+              }}
               title="Upload ảnh barcode"
             >
               {processingUpload ? <Spinner /> : <Icon icon="zi-photo" />}
@@ -696,16 +772,25 @@ function EarnPointsPage() {
         {/* ── Submit button ── */}
         <button
           onClick={handleSubmit}
-          disabled={loading}
+          onTouchStart={(e) => {
+            if (!loading && !buttonBusy) {
+              e.currentTarget.style.transform = 'scale(0.98)';
+            }
+          }}
+          onTouchEnd={(e) => {
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+          disabled={loading || buttonBusy}
           className="w-full py-4 rounded-2xl text-white font-bold text-base transition-all active:scale-95"
           style={{
-            background: loading
+            background: (loading || buttonBusy)
               ? '#93c5fd'
               : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 60%, #1d4ed8 100%)',
-            boxShadow: loading ? 'none' : '0 6px 20px rgba(37,99,235,0.4)',
+            boxShadow: (loading || buttonBusy) ? 'none' : '0 6px 20px rgba(37,99,235,0.4)',
+            cursor: (loading || buttonBusy) ? 'not-allowed' : 'pointer',
           }}
         >
-          {loading
+          {(loading || buttonBusy)
             ? <span className="flex items-center justify-center gap-2"><Spinner /> Đang xử lý…</span>
             : '⚡ Xác nhận tích điểm'
           }
@@ -751,7 +836,9 @@ function EarnPointsPage() {
               </div>
               <button
                 onClick={handleStopScan}
-                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors text-xs"
+                onTouchStart={(e) => e.currentTarget.style.transform = 'scale(0.9)'}
+                onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors text-xs active:scale-90"
               >
                 ✕
               </button>
@@ -854,10 +941,22 @@ function EarnPointsPage() {
                   {capturedPhoto ? (
                     <button
                       onClick={() => {
+                        if (buttonBusy) return;
+                        setButtonBusy(true);
                         setCapturedPhoto(null);
-                        setTimeout(() => openCameraWithAutoScan(), 100);
+                        setTimeout(() => {
+                          openCameraWithAutoScan();
+                          setButtonBusy(false);
+                        }, 100);
                       }}
+                      onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
+                      onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                      disabled={buttonBusy}
                       className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
+                      style={{
+                        opacity: buttonBusy ? 0.5 : 1,
+                        cursor: buttonBusy ? 'not-allowed' : 'pointer',
+                      }}
                     >
                       📷 Chụp lại
                     </button>
@@ -865,16 +964,35 @@ function EarnPointsPage() {
                     <>
                       <button
                         onClick={handleUploadImage}
+                        onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
+                        onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        disabled={buttonBusy}
                         className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
+                        style={{
+                          opacity: buttonBusy ? 0.5 : 1,
+                          cursor: buttonBusy ? 'not-allowed' : 'pointer',
+                        }}
                       >
                         🖼 Ảnh khác
                       </button>
                       <button
                         onClick={() => {
+                          if (buttonBusy) return;
+                          setButtonBusy(true);
                           setUploadedPhoto(null);
-                          setTimeout(() => openCameraWithAutoScan(), 100);
+                          setTimeout(() => {
+                            openCameraWithAutoScan();
+                            setButtonBusy(false);
+                          }, 100);
                         }}
+                        onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
+                        onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                        disabled={buttonBusy}
                         className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
+                        style={{
+                          opacity: buttonBusy ? 0.5 : 1,
+                          cursor: buttonBusy ? 'not-allowed' : 'pointer',
+                        }}
                       >
                         📷 Chụp mới
                       </button>
@@ -882,16 +1000,19 @@ function EarnPointsPage() {
                   )}
                   <button
                     onClick={handleScanFromPhoto}
-                    disabled={scanningPhoto}
+                    onTouchStart={(e) => !scanningPhoto && (e.currentTarget.style.transform = 'scale(0.95)')}
+                    onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    disabled={scanningPhoto || buttonBusy}
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
                     style={{
-                      background: scanningPhoto
+                      background: (scanningPhoto || buttonBusy)
                         ? '#4ade80'
                         : 'linear-gradient(135deg, #22c55e, #16a34a)',
-                      boxShadow: scanningPhoto ? '0 2px 8px rgba(74,222,128,0.2)' : '0 4px 12px rgba(22,163,74,0.3)',
+                      boxShadow: (scanningPhoto || buttonBusy) ? '0 2px 8px rgba(74,222,128,0.2)' : '0 4px 12px rgba(22,163,74,0.3)',
+                      cursor: (scanningPhoto || buttonBusy) ? 'not-allowed' : 'pointer',
                     }}
                   >
-                    {scanningPhoto ? (
+                    {(scanningPhoto || buttonBusy) ? (
                       <span className="flex items-center justify-center gap-1.5">
                         <span className="inline-block">🔍</span>
                         <span className="animate-pulse">Đang quét…</span>
@@ -905,25 +1026,39 @@ function EarnPointsPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={handleStopScan}
+                    onTouchStart={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+                    onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
                     className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors active:scale-95"
                   >
                     Hủy
                   </button>
                   <button
                     onClick={handleUploadImage}
+                    onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
+                    onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    disabled={buttonBusy}
                     className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors active:scale-95"
+                    style={{
+                      opacity: buttonBusy ? 0.5 : 1,
+                      cursor: buttonBusy ? 'not-allowed' : 'pointer',
+                    }}
                   >
                     🖼 Upload
                   </button>
                   <button
                     onClick={handleCapturePhoto}
+                    onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
+                    onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    disabled={buttonBusy}
                     className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-95"
                     style={{
-                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                      boxShadow: '0 4px 12px rgba(22,163,74,0.3)',
+                      background: buttonBusy ? '#4ade80' : 'linear-gradient(135deg, #22c55e, #16a34a)',
+                      boxShadow: buttonBusy ? '0 2px 8px rgba(74,222,128,0.2)' : '0 4px 12px rgba(22,163,74,0.3)',
+                      cursor: buttonBusy ? 'not-allowed' : 'pointer',
+                      opacity: buttonBusy ? 0.7 : 1,
                     }}
                   >
-                    📷 Chụp
+                    {buttonBusy ? 'Đang xử lý...' : '📷 Chụp'}
                   </button>
                 </div>
               )}
