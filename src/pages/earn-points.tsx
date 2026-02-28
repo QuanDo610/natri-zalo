@@ -219,23 +219,46 @@ function EarnPointsPage() {
     }
 
     try {
-      console.log('[Capture] Taking photo...');
+      console.log('[Capture] Taking zoomed photo quickly...');
       setButtonBusy(true);
       
-      const result = await captureAndDecode(videoRef.current);
-      setCapturedPhoto(result.imageData);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Cannot create canvas');
       
-      // Nếu tìm thấy barcode ngay khi chụp, auto-fill
-      if (result.barcode && isValidBarcode(result.barcode)) {
-        console.log('[Capture] Barcode detected:', result.barcode);
-        setBarcode(result.barcode);
-        handleBarcodeCheck(result.barcode);
-        setShowCamera(false);
-        setCapturedPhoto(null);
-        setScanToast({ type: 'success', message: '✅ Đã nhận diện barcode từ ảnh!' });
+      const video = videoRef.current;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      
+      if (cssZoom) {
+        // CSS zoom x2 - crop center 50% and upscale to 2x size
+        console.log('[Capture] CSS zoom: cropping center 50% and upscaling 2x');
+        const sx = Math.floor(vw * 0.25);
+        const sy = Math.floor(vh * 0.25);
+        const sw = Math.floor(vw * 0.5);
+        const sh = Math.floor(vh * 0.5);
+        
+        // Upscale to double the cropped size for better display
+        canvas.width = sw * 2;
+        canvas.height = sh * 2;
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       } else {
-        console.log('[Capture] No barcode found in photo');
+        // Hardware zoom x3 - crop center 33.33% area to capture zoomed region
+        console.log('[Capture] Hardware zoom x3: cropping center 33.33% area and upscaling 3x');
+        const sx = Math.floor(vw * 0.1667);
+        const sy = Math.floor(vh * 0.1667);
+        const sw = Math.floor(vw * 0.6667);
+        const sh = Math.floor(vh * 0.6667);
+        
+        // Upscale to 3x to match the zoom level
+        canvas.width = Math.floor(sw * 3);
+        canvas.height = Math.floor(sh * 3);
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       }
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.92);
+      setCapturedPhoto(imageData);
+      console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height);
     } catch (err) {
       console.error('[Capture] Capture error:', err);
       setError('Không thể chụp ảnh. Vui lòng thử lại.');
@@ -899,12 +922,14 @@ function EarnPointsPage() {
                     <button
                       onClick={() => {
                         if (buttonBusy) return;
+                        console.log('[Capture] Restarting camera...');
                         setButtonBusy(true);
                         setCapturedPhoto(null);
+                        // Wait for video element to render, then open camera
                         setTimeout(() => {
                           openCameraWithZoom();
                           setButtonBusy(false);
-                        }, 100);
+                        }, 150);
                       }}
                       onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
                       onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
@@ -935,12 +960,14 @@ function EarnPointsPage() {
                       <button
                         onClick={() => {
                           if (buttonBusy) return;
+                          console.log('[Capture] Starting new camera capture...');
                           setButtonBusy(true);
                           setUploadedPhoto(null);
+                          // Wait for video element to render, then open camera
                           setTimeout(() => {
                             openCameraWithZoom();
                             setButtonBusy(false);
-                          }, 100);
+                          }, 150);
                         }}
                         onTouchStart={(e) => !buttonBusy && (e.currentTarget.style.transform = 'scale(0.95)')}
                         onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}

@@ -180,17 +180,46 @@ function BarcodeManagePage() {
     }
 
     try {
-      const result = await captureAndDecode(videoRef.current);
-      setCapturedPhoto(result.imageData);
-      setScanState('captured');
+      console.log('[Capture] Taking zoomed photo quickly...');
       
-      // Nếu tìm thấy barcode ngay khi chụp, auto-process
-      if (result.barcode && isValidBarcode(result.barcode)) {
-        setScannedBarcode(result.barcode);
-        const parsed = parseBarcodePrefix(result.barcode);
-        setInferredProduct(parsed);
-        setScanState('scanned');
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Cannot create canvas');
+      
+      const video = videoRef.current;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      
+      if (cssZoom) {
+        // CSS zoom x2 - crop center 50% and upscale to 2x size
+        console.log('[Capture] CSS zoom: cropping center 50% and upscaling 2x');
+        const sx = Math.floor(vw * 0.25);
+        const sy = Math.floor(vh * 0.25);
+        const sw = Math.floor(vw * 0.5);
+        const sh = Math.floor(vh * 0.5);
+        
+        // Upscale to double the cropped size for better display
+        canvas.width = sw * 2;
+        canvas.height = sh * 2;
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      } else {
+        // Hardware zoom x3 - crop center 33.33% area to capture zoomed region
+        console.log('[Capture] Hardware zoom x3: cropping center 33.33% area and upscaling 3x');
+        const sx = Math.floor(vw * 0.1667);
+        const sy = Math.floor(vh * 0.1667);
+        const sw = Math.floor(vw * 0.6667);
+        const sh = Math.floor(vh * 0.6667);
+        
+        // Upscale to 3x to match the zoom level
+        canvas.width = Math.floor(sw * 3);
+        canvas.height = Math.floor(sh * 3);
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       }
+      
+      const imageData = canvas.toDataURL('image/jpeg', 0.92);
+      setCapturedPhoto(imageData);
+      setScanState('captured');
+      console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height);
     } catch (err) {
       console.error('Capture error:', err);
       setScanState('error');
@@ -543,10 +572,17 @@ function BarcodeManagePage() {
                   <Button 
                     variant="secondary" 
                     onClick={() => {
+                      console.log('[Capture] Restarting camera...');
+                      // Cleanup old camera stream first
+                      if (cleanupRef.current) {
+                        cleanupRef.current();
+                        cleanupRef.current = null;
+                      }
                       setCapturedPhoto(null);
-                      setScanState('previewing');
                       setCssZoom(false);
-                      // Restart camera preview
+                      setScanState('previewing');
+                      
+                      // Wait for video element to be rendered, then restart camera
                       setTimeout(() => {
                         if (videoRef.current) {
                           const cleanup = startCameraPreview(
@@ -567,8 +603,10 @@ function BarcodeManagePage() {
                               console.log('[Scan] Using CSS zoom fallback (scale 2x)');
                             }
                           }, 700);
+                        } else {
+                          console.error('[Capture] Video element not ready');
                         }
-                      }, 100);
+                      }, 150);
                     }}
                     className="flex-1"
                   >
@@ -587,10 +625,17 @@ function BarcodeManagePage() {
                     <Button 
                       variant="tertiary" 
                       onClick={() => {
+                        console.log('[Capture] Starting new camera capture...');
+                        // Cleanup old camera stream first
+                        if (cleanupRef.current) {
+                          cleanupRef.current();
+                          cleanupRef.current = null;
+                        }
                         setUploadedPhoto(null);
-                        setScanState('previewing');
                         setCssZoom(false);
-                        // Restart camera preview
+                        setScanState('previewing');
+                        
+                        // Wait for video element to be rendered, then restart camera
                         setTimeout(() => {
                           if (videoRef.current) {
                             const cleanup = startCameraPreview(
@@ -611,8 +656,10 @@ function BarcodeManagePage() {
                                 console.log('[Scan] Using CSS zoom fallback (scale 2x)');
                               }
                             }, 700);
+                          } else {
+                            console.error('[Capture] Video element not ready');
                           }
-                        }, 100);
+                        }, 150);
                       }}
                       className="flex-1"
                     >
