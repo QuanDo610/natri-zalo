@@ -575,6 +575,12 @@ export function startCameraPreview(
     }
     if (videoElement) {
       videoElement.srcObject = null;
+      // Pause video to ensure play() isn't running
+      try {
+        videoElement.pause();
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -594,10 +600,22 @@ export function startCameraPreview(
 
   (async () => {
     try {
-      // Stop old stream first
+      // Stop old stream first and clear video element
       if (currentPreviewStream) {
         currentPreviewStream.getTracks().forEach((t) => t.stop());
         currentPreviewStream = null;
+      }
+      
+      // Clear and pause video element before assigning new stream
+      if (videoElement.srcObject) {
+        try {
+          videoElement.pause();
+        } catch {
+          // ignore
+        }
+        videoElement.srcObject = null;
+        // Small delay to ensure cleanup completes
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -607,9 +625,31 @@ export function startCameraPreview(
           height: { ideal: 720 },
         },
       });
+      
+      // Double-check video element is still available (user might have closed camera)
+      if (!videoElement) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+      
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
-      await videoElement.play();
+      
+      // Wait a bit for stream to be ready, then play
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      try {
+        await videoElement.play();
+      } catch (playError: any) {
+        // If play() fails with interrupt error, try once more
+        if (playError.name === 'AbortError') {
+          console.log('[Camera] Retrying play() after abort...');
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await videoElement.play();
+        } else {
+          throw playError;
+        }
+      }
     } catch (error: any) {
       console.error('Camera preview error:', error);
       currentPreviewStream = null;

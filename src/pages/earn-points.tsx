@@ -155,34 +155,49 @@ function EarnPointsPage() {
 
     setCssZoom(false); // reset CSS zoom
 
-    const cleanup = startCameraPreview(
-      videoRef.current,
-      (errType: ScannerError, errMsg: string) => {
-        setShowCamera(false);
-        if (errType === 'PERMISSION_DENIED') {
-          setError('Quyền camera bị từ chối. Vui lòng cấp quyền camera trong cài đặt.');
-        } else if (errType === 'NO_CAMERA') {
-          setError('Không tìm thấy camera trên thiết bị.');
-        } else if (errType === 'HTTPS_REQUIRED') {
-          setError('Cần HTTPS để sử dụng camera.');
-        } else {
-          setError(`Lỗi camera: ${errMsg}`);
-        }
-      }
-    );
-    cleanupRef.current = cleanup;
+    // Clean up old stream/scan FIRST before starting new camera
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
+    if (autoScanCleanupRef.current) {
+      autoScanCleanupRef.current();
+      autoScanCleanupRef.current = null;
+    }
 
-    // Wait for camera stream to be ready, then apply zoom + start auto-scan
-    setTimeout(async () => {
-      // Try hardware zoom x3 first
-      const hwZoomOk = await setPreviewZoom(3.0);
-      if (!hwZoomOk) {
-        // Hardware zoom not supported — use CSS transform as visual zoom
-        setCssZoom(true);
-        console.log('[Scan] Using CSS zoom fallback (scale 2x)');
-      }
-      startAutoScanOnPreview();
-    }, 600);
+    // Small delay to ensure cleanup completes
+    setTimeout(() => {
+      if (!videoRef.current) return;
+
+      const cleanup = startCameraPreview(
+        videoRef.current,
+        (errType: ScannerError, errMsg: string) => {
+          setShowCamera(false);
+          if (errType === 'PERMISSION_DENIED') {
+            setError('Quyền camera bị từ chối. Vui lòng cấp quyền camera trong cài đặt.');
+          } else if (errType === 'NO_CAMERA') {
+            setError('Không tìm thấy camera trên thiết bị.');
+          } else if (errType === 'HTTPS_REQUIRED') {
+            setError('Cần HTTPS để sử dụng camera.');
+          } else {
+            setError(`Lỗi camera: ${errMsg}`);
+          }
+        }
+      );
+      cleanupRef.current = cleanup;
+
+      // Wait for camera stream to be ready, then apply zoom + start auto-scan
+      setTimeout(async () => {
+        // Try hardware zoom x3 first
+        const hwZoomOk = await setPreviewZoom(3.0);
+        if (!hwZoomOk) {
+          // Hardware zoom not supported — use CSS transform as visual zoom
+          setCssZoom(true);
+          console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+        }
+        startAutoScanOnPreview();
+      }, 700);
+    }, 100);
   };
 
   // ── Camera scanning with auto-detection ──
