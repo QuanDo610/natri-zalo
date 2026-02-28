@@ -16,15 +16,17 @@ import {
 } from '@/store/app-store';
 import { api } from '@/services/api-client';
 import {
-  startScan,
   stopScan,
   startCameraPreview,
+  startAutoScanFromStream,
   captureAndDecode,
   decodeFromImageFile,
   isValidBarcode,
   isValidPhone,
   SCANNER_VERSION,
   type ScannerError,
+  setPreviewZoom,
+  getZoomCapabilities,
 } from '@/services/scanner-enhanced';
 import type { ApiError } from '@/types';
 
@@ -51,9 +53,13 @@ function EarnPointsPage() {
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
+  const [autoScanEnabled, setAutoScanEnabled] = useState(true);
+  const [autoScanDetected, setAutoScanDetected] = useState<string | null>(null);
+  const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
+  const autoScanCleanupRef = React.useRef<(() => void) | null>(null);
 
 
 
@@ -95,6 +101,10 @@ function EarnPointsPage() {
         cleanupRef.current();
         cleanupRef.current = null;
       }
+      if (autoScanCleanupRef.current) {
+        autoScanCleanupRef.current();
+        autoScanCleanupRef.current = null;
+      }
       stopScan();
     };
   }, []);
@@ -114,39 +124,75 @@ function EarnPointsPage() {
     });
   };
 
-  // ── Camera scanning ──
+  // Helper: start auto-scan on the current video preview
+  const startAutoScanOnPreview = () => {
+    if (!autoScanEnabled || !videoRef.current) return;
+    // Stop previous auto-scan if any
+    if (autoScanCleanupRef.current) {
+      autoScanCleanupRef.current();
+      autoScanCleanupRef.current = null;
+    }
+    const scanCleanup = startAutoScanFromStream(
+      videoRef.current,
+      (detectedBarcode: string) => {
+        setAutoScanDetected(detectedBarcode);
+        setBarcode(detectedBarcode);
+        handleBarcodeCheck(detectedBarcode);
+        setScanToast({ type: 'success', message: '✅ Tìm thấy barcode qua auto-scan!' });
+      },
+      { intervalMs: 350 },
+    );
+    autoScanCleanupRef.current = scanCleanup;
+  };
+
+  // Helper: open camera preview + auto-scan + auto zoom
+  const openCameraWithAutoScan = () => {
+    if (!videoRef.current) {
+      setError('Không thể khởi tạo camera.');
+      setShowCamera(false);
+      return;
+    }
+
+    setCssZoom(false); // reset CSS zoom
+
+    const cleanup = startCameraPreview(
+      videoRef.current,
+      (errType: ScannerError, errMsg: string) => {
+        setShowCamera(false);
+        if (errType === 'PERMISSION_DENIED') {
+          setError('Quyền camera bị từ chối. Vui lòng cấp quyền camera trong cài đặt.');
+        } else if (errType === 'NO_CAMERA') {
+          setError('Không tìm thấy camera trên thiết bị.');
+        } else if (errType === 'HTTPS_REQUIRED') {
+          setError('Cần HTTPS để sử dụng camera.');
+        } else {
+          setError(`Lỗi camera: ${errMsg}`);
+        }
+      }
+    );
+    cleanupRef.current = cleanup;
+
+    // Wait for camera stream to be ready, then apply zoom + start auto-scan
+    setTimeout(async () => {
+      // Try hardware zoom x3 first
+      const hwZoomOk = await setPreviewZoom(3.0);
+      if (!hwZoomOk) {
+        // Hardware zoom not supported — use CSS transform as visual zoom
+        setCssZoom(true);
+        console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+      }
+      startAutoScanOnPreview();
+    }, 600);
+  };
+
+  // ── Camera scanning with auto-detection ──
   const handleStartScan = () => {
     setShowCamera(true);
     setCapturedPhoto(null);
     setUploadedPhoto(null);
+    setAutoScanDetected(null);
     setError(null);
-    setTimeout(() => {
-      if (!videoRef.current) {
-        setError('Không thể khởi tạo camera.');
-        setShowCamera(false);
-        return;
-      }
-
-      // Start camera preview (không scan liên tục)
-      const cleanup = startCameraPreview(
-        videoRef.current,
-        // onError  
-        (errType: ScannerError, errMsg: string) => {
-          setShowCamera(false);
-          if (errType === 'PERMISSION_DENIED') {
-            setError('Quyền camera bị từ chối. Vui lòng cấp quyền camera trong cài đặt.');
-          } else if (errType === 'NO_CAMERA') {
-            setError('Không tìm thấy camera trên thiết bị.');
-          } else if (errType === 'HTTPS_REQUIRED') {
-            setError('Cần HTTPS để sử dụng camera.');
-          } else {
-            setError(`Lỗi camera: ${errMsg}`);
-          }
-        }
-      );
-
-      cleanupRef.current = cleanup;
-    }, 100);
+    setTimeout(() => openCameraWithAutoScan(), 100);
   };
 
   const handleStopScan = () => {
@@ -154,10 +200,15 @@ function EarnPointsPage() {
       cleanupRef.current();
       cleanupRef.current = null;  
     }
+    if (autoScanCleanupRef.current) {
+      autoScanCleanupRef.current();
+      autoScanCleanupRef.current = null;
+    }
     stopScan();
     setCapturedPhoto(null);
     setUploadedPhoto(null);
     setShowCamera(false);
+    setAutoScanDetected(null);
   };
 
   // Chụp ảnh từ camera preview
@@ -672,9 +723,17 @@ function EarnPointsPage() {
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <span className="font-semibold text-gray-800 text-sm">
-                {(capturedPhoto || uploadedPhoto) ? '🔍 Xem ảnh' : '📷 Quét barcode'}
-              </span>
+              <div className="flex-1">
+                <span className="font-semibold text-gray-800 text-sm block">
+                  {(capturedPhoto || uploadedPhoto) ? '🔍 Xem ảnh' : '📷 Quét barcode'}
+                </span>
+                {!capturedPhoto && !uploadedPhoto && autoScanEnabled && (
+                  <span className="text-xs text-green-600 flex items-center gap-1 mt-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse" />
+                    Auto-scan hoạt động
+                  </span>
+                )}
+              </div>
               <button
                 onClick={handleStopScan}
                 className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors text-xs"
@@ -721,6 +780,10 @@ function EarnPointsPage() {
                       playsInline
                       muted
                       className="w-full h-full object-cover"
+                      style={cssZoom ? {
+                        transform: 'scale(2)',
+                        transformOrigin: 'center center',
+                      } : undefined}
                     />
                     
                     {/* Scanning line animation */}
@@ -777,15 +840,7 @@ function EarnPointsPage() {
                     <button
                       onClick={() => {
                         setCapturedPhoto(null);
-                        setTimeout(() => {
-                          if (videoRef.current) {
-                            const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
-                              setShowCamera(false);
-                              setError(`Lỗi camera: ${errMsg}`);
-                            });
-                            cleanupRef.current = cleanup;
-                          }
-                        }, 100);
+                        setTimeout(() => openCameraWithAutoScan(), 100);
                       }}
                       className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
                     >
@@ -802,15 +857,7 @@ function EarnPointsPage() {
                       <button
                         onClick={() => {
                           setUploadedPhoto(null);
-                          setTimeout(() => {
-                            if (videoRef.current) {
-                              const cleanup = startCameraPreview(videoRef.current, (errType, errMsg) => {
-                                setShowCamera(false);
-                                setError(`Lỗi camera: ${errMsg}`);
-                              });
-                              cleanupRef.current = cleanup;
-                            }
-                          }, 100);
+                          setTimeout(() => openCameraWithAutoScan(), 100);
                         }}
                         className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors active:scale-95"
                       >

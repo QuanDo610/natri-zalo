@@ -453,21 +453,26 @@ export type ScannerError =
 let currentControls: IScannerControls | null = null;
 let currentPreviewStream: MediaStream | null = null;
 
-/** Apply zoom level to the current camera preview (1.0 = normal, 2.0 = 2x zoom, etc.) */
-export async function setPreviewZoom(level: number): Promise<void> {
-  if (!currentPreviewStream) return;
+/** Apply zoom level to the current camera preview (1.0 = normal, 2.0 = 2x zoom, etc.)
+ *  Returns true if hardware zoom was applied, false if not supported. */
+export async function setPreviewZoom(level: number): Promise<boolean> {
+  if (!currentPreviewStream) return false;
   const track = currentPreviewStream.getVideoTracks()[0];
-  if (!track) return;
+  if (!track) return false;
   try {
     const capabilities = track.getCapabilities() as any;
     if (capabilities?.zoom) {
       const { min, max } = capabilities.zoom;
       const clamped = Math.max(min, Math.min(max, level));
       await track.applyConstraints({ advanced: [{ zoom: clamped } as any] });
+      console.log(`[Scanner] Hardware zoom applied: ${clamped}x`);
+      return true;
     }
   } catch {
     // Zoom not supported on this device/browser
   }
+  console.log('[Scanner] Hardware zoom not supported');
+  return false;
 }
 
 /** Get zoom capabilities of current camera (returns null if zoom not supported) */
@@ -618,6 +623,120 @@ export function startCameraPreview(
       }
     }
   })();
+
+  return cleanup;
+}
+
+// ── Continuous auto-scan from existing preview stream ──
+// Uses the SAME video element (no new stream) — avoids play() conflict
+// Crops center region + applies enhancement for small barcodes
+export function startAutoScanFromStream(
+  videoElement: HTMLVideoElement,
+  onResult: (barcode: string) => void,
+  options?: { intervalMs?: number },
+): () => void {
+  const interval = options?.intervalMs ?? 350; // scan every 350ms for responsiveness
+  let stopped = false;
+  let timerId: ReturnType<typeof setInterval> | null = null;
+  let lastDetected = '';
+  let lastDetectedTime = 0;
+  let scanIndex = 0; // rotate through strategies each frame
+
+  // Define crop regions: (sx%, sy%, sw%, sh%) relative to video dimensions
+  // We focus on the center area where the user aims the barcode
+  const cropRegions = [
+    { sx: 0.10, sy: 0.20, sw: 0.80, sh: 0.60, label: 'center-wide' },      // wide center
+    { sx: 0.05, sy: 0.30, sw: 0.90, sh: 0.40, label: 'center-strip' },      // horizontal strip
+    { sx: 0.15, sy: 0.25, sw: 0.70, sh: 0.50, label: 'center-box' },        // center box
+    { sx: 0.00, sy: 0.00, sw: 1.00, sh: 1.00, label: 'full-frame' },        // full frame fallback
+    { sx: 0.20, sy: 0.35, sw: 0.60, sh: 0.30, label: 'center-narrow' },     // narrow center
+  ];
+
+  // Enhancement modes to rotate through
+  const enhancements = ['none', 'contrast', 'grayscale', 'binary'];
+
+  const tryDecode = async (canvas: HTMLCanvasElement): Promise<string | null> => {
+    const readers = [createMultiReader(), createReader()];
+    for (const reader of readers) {
+      if (stopped) return null;
+      try {
+        const result = await reader.decodeFromCanvas(canvas);
+        if (result) {
+          const text = result.getText()?.trim()?.toUpperCase();
+          if (text && isValidBarcode(text)) return text;
+        }
+      } catch {
+        // continue
+      }
+    }
+    return null;
+  };
+
+  const scanFrame = async () => {
+    if (stopped) return;
+    if (!videoElement || videoElement.readyState < 2) return; // HAVE_CURRENT_DATA
+
+    const vw = videoElement.videoWidth;
+    const vh = videoElement.videoHeight;
+    if (vw === 0 || vh === 0) return;
+
+    try {
+      // Rotate through crop regions + enhancements
+      const cropIdx = scanIndex % cropRegions.length;
+      const enhIdx = Math.floor(scanIndex / cropRegions.length) % enhancements.length;
+      scanIndex++;
+
+      const crop = cropRegions[cropIdx];
+      const enhance = enhancements[enhIdx];
+
+      const sx = Math.floor(vw * crop.sx);
+      const sy = Math.floor(vh * crop.sy);
+      const sw = Math.floor(vw * crop.sw);
+      const sh = Math.floor(vh * crop.sh);
+
+      // Create canvas at 2x size for better small barcode detection
+      const upscale = 2.0;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      canvas.width = Math.floor(sw * upscale);
+      canvas.height = Math.floor(sh * upscale);
+
+      ctx.drawImage(videoElement, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+      // Apply enhancement
+      if (enhance !== 'none') {
+        enhanceImage(ctx, canvas, enhance);
+      }
+
+      const text = await tryDecode(canvas);
+      if (text) {
+        const now = Date.now();
+        if (text !== lastDetected || now - lastDetectedTime > 3000) {
+          lastDetected = text;
+          lastDetectedTime = now;
+          console.log(`🎯 Auto-scan [${crop.label}+${enhance}]:`, text);
+          onResult(text);
+        }
+      }
+    } catch (err) {
+      // Frame grab failed, will retry next interval
+    }
+  };
+
+  // Start periodic scanning
+  timerId = setInterval(scanFrame, interval);
+  // First scan after video is ready
+  setTimeout(scanFrame, 400);
+
+  const cleanup = () => {
+    stopped = true;
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
+  };
 
   return cleanup;
 }
