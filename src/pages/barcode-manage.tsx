@@ -591,8 +591,8 @@ function BarcodeManagePage() {
 
           {/* === PREVIEWING state — camera preview === */}
           {scanState === 'previewing' && (
-            <Box className="space-y-3">
-              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 400, aspectRatio: '4/3' }}>
+            <Box className="space-y-3 h-[calc(100vh-200px)]">
+              <Box className="relative rounded-lg overflow-hidden bg-black flex-1" style={{}}>
                 <video
                   ref={videoRef}
                   autoPlay
@@ -691,8 +691,8 @@ function BarcodeManagePage() {
 
           {/* === CAPTURED state — show captured image === */}
           {scanState === 'captured' && (capturedPhotoCropped || uploadedPhoto) && (
-            <Box className="space-y-3">
-              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
+            <Box className="space-y-3 h-[calc(100vh-200px)]">
+              <Box className="relative rounded-lg overflow-hidden bg-black flex-1" style={{}}>
                 <img
                   src={capturedPhotoCropped || uploadedPhoto || ''}
                   alt={capturedPhotoCropped ? "Captured barcode (cropped)" : "Uploaded barcode"}
@@ -700,14 +700,11 @@ function BarcodeManagePage() {
                     width: '100%',
                     height: '100%',
                     objectFit: 'contain',
-                    minHeight: 240,
-                    transform: 'scale(3)',
-                    transformOrigin: 'center center',
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop) - 3x zoom.' : 'Ảnh đã tải lên - 3x zoom.'} Nhấn "Quét" hoặc thử lại.
+                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop). Nhấn "Quét" hoặc thử lại.' : 'Ảnh đã tải lên. Nhấn "Quét" hoặc thử lại.'}
               </Text>
               <Box className="flex gap-2">
                 {capturedPhotoCropped && !uploadedPhoto ? (

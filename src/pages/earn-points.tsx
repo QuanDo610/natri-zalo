@@ -792,8 +792,8 @@ function EarnPointsPage() {
           onClick={handleStopScan}
         >
           <div
-            className="bg-white rounded-2xl w-[92%] max-w-md overflow-hidden flex flex-col"
-            style={{ maxHeight: '80vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+            className="bg-white rounded-3xl w-[98%] overflow-hidden flex flex-col"
+            style={{ maxHeight: '95vh', height: '95vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -835,24 +835,15 @@ function EarnPointsPage() {
             )}
 
             {/* Camera / photo view */}
-            <div className="px-3 pt-3">
+            <div className="px-4 pt-3 flex-1 flex flex-col">
               <div
-                className="relative rounded-xl overflow-hidden bg-black"
-                style={{ aspectRatio: '4/3' }}
+                className="relative rounded-xl overflow-hidden bg-black flex-1"
               >
                 {(capturedPhoto || uploadedPhoto) ? (
                   <img
                     src={capturedPhoto || uploadedPhoto || ''}
                     alt="Barcode preview"
                     className="w-full h-full object-contain"
-                    style={
-                      capturedPhoto
-                        ? {
-                            transform: 'scale(3)',
-                            transformOrigin: 'center center',
-                          }
-                        : undefined
-                    }
                   />
                 ) : (
                   <>
