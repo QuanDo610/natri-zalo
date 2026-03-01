@@ -162,9 +162,6 @@ function BarcodeManagePage() {
     setScannedBarcode('');
     setInferredProduct(null);
     setCapturedPhoto(null);
-    setCapturedPhotoCropped(null);
-    setCropRect(null);
-    setSourceSize(null);
     setUploadedPhoto(null);
     setErrorMessage('');
     setErrorType(null);
@@ -220,9 +217,6 @@ function BarcodeManagePage() {
     }
     stopScan();
     setCapturedPhoto(null);
-    setCapturedPhotoCropped(null);
-    setCropRect(null);
-    setSourceSize(null);
     setUploadedPhoto(null);
     setFocusLocked(false); // ⭐ Reset focus lock
     setScanState('idle');
@@ -256,47 +250,29 @@ function BarcodeManagePage() {
         throw new Error('Cannot compute crop rect from DOM');
       }
       
-      // Capture full frame to canvas
-      const fullCanvas = document.createElement('canvas');
-      const fullCtx = fullCanvas.getContext('2d');
-      if (!fullCtx) throw new Error('Cannot create canvas context');
-      
-      fullCtx.imageSmoothingEnabled = false;
-      fullCtx.filter = 'none';
-      fullCanvas.width = vw;
-      fullCanvas.height = vh;
-      
-      // Draw and capture at optimal quality
-      fullCtx.drawImage(video, 0, 0, vw, vh);
-      
-      // Use quality 0.95 for balanced sharp + stable encoding
-      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.95);
-      setCapturedPhoto(fullPhotoDataUrl);
-      
-      // Crop exact region for barcode decode
+      // Capture ONLY the crop region directly (single unified image)
       const cropCanvas = document.createElement('canvas');
       const cropCtx = cropCanvas.getContext('2d');
-      if (!cropCtx) throw new Error('Cannot create crop canvas context');
+      if (!cropCtx) throw new Error('Cannot create canvas context');
       
       cropCtx.imageSmoothingEnabled = false;
       cropCtx.filter = 'none';
       cropCanvas.width = sourceCrop.width;
       cropCanvas.height = sourceCrop.height;
       
-      // Draw cropped region (exact source pixels)
+      // Draw cropped region (exact source pixels - this is THE image for everything)
       cropCtx.drawImage(
         video,
         sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
         0, 0, sourceCrop.width, sourceCrop.height
       );
       
-      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
-      setCapturedPhotoCropped(croppedPhotoDataUrl); // ⭐⭐⭐ FOR DECODE
-      setCropRect(sourceCrop);
-      setSourceSize({ width: vw, height: vh });
+      // Single unified image: crop region at 0.95 quality (used for both preview and decode)
+      const photoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
+      setCapturedPhoto(photoDataUrl);
       
       setScanState('captured');
-      console.log(`[Capture] ✅ Full: ${vw}x${vh}, Cropped: ${sourceCrop.width}x${sourceCrop.height}`);
+      console.log(`[Capture] ✅ Captured crop region: ${sourceCrop.width}x${sourceCrop.height}`);
     } catch (err) {
       console.error('Capture error:', err);
       setScanState('error');
@@ -307,13 +283,13 @@ function BarcodeManagePage() {
 
   // ── Quét barcode từ ảnh đã chụp hoặc upload ──
   const handleScanFromPhoto = async () => {
-    if (capturedPhotoCropped) {
-      // ⭐⭐⭐ CRITICAL: MUST scan from CROPPED photo only
+    if (capturedPhoto) {
+      // ⭐⭐⭐ CRITICAL: Use single unified captured image (already cropped)
       setScanningPhoto(true);
       try {
-        console.log(`[Decode] 🔍 Decoding from cropped photo: ${sourceSize ? sourceSize.width + 'x' + sourceSize.height : '?'}, crop: ${cropRect ? cropRect.width + 'x' + cropRect.height : '?'}`);
+        console.log(`[Decode] 🔍 Decoding from captured photo`);
         
-        const result = await decodeFromCroppedPhoto(capturedPhotoCropped, cropRect || undefined);
+        const result = await decodeFromCroppedPhoto(capturedPhoto);
         
         if (result.barcode && isValidBarcode(result.barcode)) {
           console.log(`[Decode] ✅ SUCCESS: ${result.barcode}`);
@@ -705,12 +681,12 @@ function BarcodeManagePage() {
           )}
 
           {/* === CAPTURED state — show captured image === */}
-          {scanState === 'captured' && (capturedPhotoCropped || uploadedPhoto) && (
+          {scanState === 'captured' && (capturedPhoto || uploadedPhoto) && (
             <Box className="space-y-3">
               <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
                 <img
-                  src={capturedPhotoCropped || uploadedPhoto || ''}
-                  alt={capturedPhotoCropped ? "Captured barcode (cropped)" : "Uploaded barcode"}
+                  src={capturedPhoto || uploadedPhoto || ''}
+                  alt={capturedPhoto ? "Captured barcode (cropped)" : "Uploaded barcode"}
                   style={{
                     width: '100%',
                     height: '100%',
@@ -725,10 +701,10 @@ function BarcodeManagePage() {
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop) - 3x phóng to. Nhấn "Quét" hoặc thử lại.' : 'Ảnh đã tải lên - 3x phóng to.'}
+                {capturedPhoto ? 'Ảnh đã chụp từ camera (đã crop) - 3x phóng to. Nhấn "Quét" hoặc thử lại.' : 'Ảnh đã tải lên - 3x phóng to.'}
               </Text>
               <Box className="flex gap-2">
-                {capturedPhotoCropped && !uploadedPhoto ? (
+                {capturedPhoto && !uploadedPhoto ? (
                   // Nếu là ảnh chụp, chỉ cho phép chụp lại
                   <Button 
                     variant="secondary" 
@@ -740,9 +716,6 @@ function BarcodeManagePage() {
                         cleanupRef.current = null;
                       }
                       setCapturedPhoto(null);
-                      setCapturedPhotoCropped(null);
-                      setCropRect(null);
-                      setSourceSize(null);
                       setCssZoom(false);
                       setScanState('previewing');
                       
@@ -847,10 +820,10 @@ function BarcodeManagePage() {
           {/* === SCANNED state — show result, confirm save === */}
           {scanState === 'scanned' && inferredProduct && (
             <Box className="space-y-3">
-              {capturedPhotoCropped && (
+              {capturedPhoto && (
                 <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
                   <img
-                    src={capturedPhotoCropped}
+                    src={capturedPhoto}
                     alt="Barcode scanned"
                     style={{
                       width: '100%',
