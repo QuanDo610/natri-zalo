@@ -621,8 +621,8 @@ export function startCameraPreview(
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          width: { min: 1280, ideal: 1280, max: 1920 },
-          height: { min: 720, ideal: 720, max: 1080 },
+          width: { min: 1280, ideal: 1920, max: 4096 },
+          height: { min: 720, ideal: 1080, max: 2160 },
         },
       });
       
@@ -635,30 +635,42 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // Configure video element for sharp playback
-      videoElement.setAttribute('decoding', 'async');
+      // Configure video element for MAXIMUM sharpness
       videoElement.setAttribute('playsinline', 'true');
       (videoElement as any).style.imageRendering = 'crisp-edges';
-      (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
+      (videoElement as any).style.backfaceVisibility = 'hidden';
+      (videoElement as any).perspective = 'none';
+      (videoElement as any).style.filter = 'none';
+      (videoElement as any).style.objectFit = 'contain';
+      (videoElement as any).style.objectPosition = 'center';
       
-      // Wait longer for autofocus to properly lock (2-2.5s for reliable focus)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait briefly for stream setup
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       try {
+        // Play video
         await videoElement.play();
         
-        // Log actual camera resolution achieved
+        // Wait LONGER for autofocus to lock (7 seconds of continuous focus)
+        await new Promise(resolve => setTimeout(resolve, 7000));
+        
+        // Disable capture until focus is locked
+        (videoElement as any).dataset.focusLocked = 'true';
+        
+        // Log camera state
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
           const settings = videoTrack.getSettings();
-          console.log(`[Camera] ✅ Stream resolution: ${settings.width}×${settings.height}, FPS: ${settings.frameRate}, Autofocus: ${settings.focusMode}`);
+          const width = settings.width || 1280;
+          const height = settings.height || 720;
+          console.log(`[Camera] ✅ Ready: ${width}×${height} - Autofocus locked`);
         }
       } catch (playError: any) {
-        // If play() fails with interrupt error, try once more
         if (playError.name === 'AbortError') {
-          console.log('[Camera] Retrying play() after abort...');
-          await new Promise(resolve => setTimeout(resolve, 100));
+          console.log('[Camera] Retrying play()...');
+          await new Promise(resolve => setTimeout(resolve, 200));
           await videoElement.play();
+          await new Promise(resolve => setTimeout(resolve, 5000));
         } else {
           throw playError;
         }

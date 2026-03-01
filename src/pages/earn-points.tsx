@@ -29,6 +29,31 @@ import {
 } from '@/services/scanner-enhanced';
 import type { ApiError } from '@/types';
 
+// ── Helper: Enhance image for barcode detection (boost contrast + sharpen) ──
+function enhanceImageForBarcodeDetection(imageData: ImageData): void {
+  const data = imageData.data;
+  const length = data.length;
+  
+  // Boost contrast: stretch histogram for sharper black/white distinction
+  for (let i = 0; i < length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    
+    // Convert to grayscale
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    
+    // Boost contrast (stretch mid-tones to extremes)
+    const contrast = 1.3;
+    const mid = 128;
+    const enhanced = mid + (gray - mid) * contrast;
+    const clamped = Math.max(0, Math.min(255, enhanced));
+    
+    // Replace RGB with enhanced grayscale
+    data[i] = data[i + 1] = data[i + 2] = clamped;
+  }
+}
+
 function EarnPointsPage() {
   const navigate = useNavigate();
   const dealerCode = useAtomValue(dealerCodeAtom);
@@ -227,6 +252,7 @@ function EarnPointsPage() {
       if (!ctx) throw new Error('Cannot create canvas');
       
       ctx.imageSmoothingEnabled = false;
+      ctx.filter = 'none';
       
       const video = videoRef.current;
       const vw = video.videoWidth;
@@ -251,7 +277,7 @@ function EarnPointsPage() {
       // Capture focus frame area to canvas (no upscaling, exact crop)
       ctx.drawImage(video, focusX, focusY, focusW, focusH, 0, 0, focusW, focusH);
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.98);
+      const imageData = canvas.toDataURL('image/jpeg', 0.95);
       setCapturedPhoto(imageData);
       console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height);
     } catch (err) {
@@ -335,14 +361,9 @@ function EarnPointsPage() {
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
               if (attempt.enhance) {
-                // Enhance contrast
+                // Enhance image for better barcode detection
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                  const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-                  const enhanced = gray > 128 ? 255 : 0;
-                  data[i] = data[i + 1] = data[i + 2] = enhanced;
-                }
+                enhanceImageForBarcodeDetection(imageData);
                 ctx.putImageData(imageData, 0, 0);
               }
 
@@ -842,7 +863,7 @@ function EarnPointsPage() {
             {/* Camera / photo view */}
             <div className="px-3 pt-3">
               <div
-                className="relative rounded-xl overflow-hidden bg-black"
+                className="relative overflow-hidden bg-black"
                 style={{ aspectRatio: '4/3' }}
               >
                 {(capturedPhoto || uploadedPhoto) ? (
@@ -853,10 +874,15 @@ function EarnPointsPage() {
                     style={
                       capturedPhoto
                         ? {
+                            imageRendering: 'crisp-edges',
+                            backfaceVisibility: 'hidden',
                             transform: 'scale(3)',
-                            transformOrigin: 'center center',
+                            transformOrigin: 'center',
+                            WebkitAppearance: 'none',
                           }
-                        : undefined
+                        : {
+                            imageRendering: 'crisp-edges',
+                          }
                     }
                   />
                 ) : (

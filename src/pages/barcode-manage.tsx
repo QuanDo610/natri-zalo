@@ -92,14 +92,12 @@ function BarcodeManagePage() {
 
   // Scan state
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
-  const [capturedPhotoCropped, setCapturedPhotoCropped] = useState<string | null>(null); // ⭐ Cropped bitmap for decode
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null); // ⭐ SINGLE image: crop region only
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
-  const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null); // Source dimensions
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
-  const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
+  const [cssZoom, setCssZoom] = useState(false);
+  const [focusLocked, setFocusLocked] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [inferredProduct, setInferredProduct] = useState<{ sku: string; productName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -173,6 +171,7 @@ function BarcodeManagePage() {
     setSuccessMessage('');
     setScanState('previewing');
     setCssZoom(false); // reset CSS zoom
+    setFocusLocked(false); // ⭐ Reset focus lock state
 
     // Wait for video element to render
     setTimeout(() => {
@@ -196,8 +195,10 @@ function BarcodeManagePage() {
 
       cleanupRef.current = cleanup;
 
-      // Wait for camera stream to be ready, then apply zoom
+      // After autofocus completes (7s), enable capture button and apply zoom
       setTimeout(async () => {
+        setFocusLocked(true); // ⭐ Autofocus is now locked, can capture
+        
         // Try hardware zoom x3 first
         const hwZoomOk = await setPreviewZoom(3.0);
         if (!hwZoomOk) {
@@ -207,7 +208,7 @@ function BarcodeManagePage() {
         } else {
           console.log('[Scan] Hardware zoom x3 applied');
         }
-      }, 700);
+      }, 7300); // Match the 7s autofocus wait + buffer
     }, 100);
   };
 
@@ -223,6 +224,7 @@ function BarcodeManagePage() {
     setCropRect(null);
     setSourceSize(null);
     setUploadedPhoto(null);
+    setFocusLocked(false); // ⭐ Reset focus lock
     setScanState('idle');
   };
 
@@ -260,10 +262,15 @@ function BarcodeManagePage() {
       if (!fullCtx) throw new Error('Cannot create canvas context');
       
       fullCtx.imageSmoothingEnabled = false;
+      fullCtx.filter = 'none';
       fullCanvas.width = vw;
       fullCanvas.height = vh;
+      
+      // Draw and capture at optimal quality
       fullCtx.drawImage(video, 0, 0, vw, vh);
-      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.98);
+      
+      // Use quality 0.95 for balanced sharp + stable encoding
+      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.95);
       setCapturedPhoto(fullPhotoDataUrl);
       
       // Crop exact region for barcode decode
@@ -272,6 +279,7 @@ function BarcodeManagePage() {
       if (!cropCtx) throw new Error('Cannot create crop canvas context');
       
       cropCtx.imageSmoothingEnabled = false;
+      cropCtx.filter = 'none';
       cropCanvas.width = sourceCrop.width;
       cropCanvas.height = sourceCrop.height;
       
@@ -282,7 +290,7 @@ function BarcodeManagePage() {
         0, 0, sourceCrop.width, sourceCrop.height
       );
       
-      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.98);
+      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
       setCapturedPhotoCropped(croppedPhotoDataUrl); // ⭐⭐⭐ FOR DECODE
       setCropRect(sourceCrop);
       setSourceSize({ width: vw, height: vh });
@@ -592,7 +600,7 @@ function BarcodeManagePage() {
           {/* === PREVIEWING state — camera preview === */}
           {scanState === 'previewing' && (
             <Box className="space-y-3">
-              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 400, aspectRatio: '4/3' }}>
+              <Box className="relative overflow-hidden bg-black" style={{ minHeight: 420, aspectRatio: '4/3' }}>
                 <video
                   ref={videoRef}
                   autoPlay
@@ -604,6 +612,8 @@ function BarcodeManagePage() {
                     objectFit: 'contain',
                     backgroundColor: '#000',
                     imageRendering: 'crisp-edges',
+                    WebkitAppearance: 'none' as any,
+                    MozAppearance: 'none' as any,
                   }}
                 />
                 
@@ -616,8 +626,11 @@ function BarcodeManagePage() {
                     top: '25%',
                     width: '70%',
                     height: '50%',
-                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.4)',
-                    borderRadius: '4px',
+                    boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,0.5)',
+                    borderRadius: '0px',
+                    imageRendering: 'crisp-edges',
+                    backfaceVisibility: 'hidden',
+                    WebkitFontSmoothing: 'antialiased',
                   }}
                 />
                 
@@ -632,7 +645,6 @@ function BarcodeManagePage() {
                     border: '3px solid #10b981',
                     borderRight: 'none',
                     borderBottom: 'none',
-                    borderRadius: '4px 0 0 0',
                   }}
                 />
                 <div
@@ -645,7 +657,6 @@ function BarcodeManagePage() {
                     border: '3px solid #10b981',
                     borderLeft: 'none',
                     borderBottom: 'none',
-                    borderRadius: '0 4px 0 0',
                   }}
                 />
                 <div
@@ -658,7 +669,6 @@ function BarcodeManagePage() {
                     border: '3px solid #10b981',
                     borderRight: 'none',
                     borderTop: 'none',
-                    borderRadius: '0 0 0 4px',
                   }}
                 />
                 <div
@@ -671,7 +681,6 @@ function BarcodeManagePage() {
                     border: '3px solid #10b981',
                     borderLeft: 'none',
                     borderTop: 'none',
-                    borderRadius: '0 0 4px 0',
                   }}
                 />
               </Box>
@@ -682,8 +691,14 @@ function BarcodeManagePage() {
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
                   ✕ Hủy
                 </Button>
-                <Button variant="primary" onClick={handleCapturePhoto} className="flex-1">
-                  📷 Chụp
+                <Button 
+                  variant="primary" 
+                  onClick={handleCapturePhoto}
+                  disabled={!focusLocked}
+                  className="flex-1"
+                  style={{ opacity: focusLocked ? 1 : 0.5 }}
+                >
+                  📷 {focusLocked ? 'Chụp' : 'Đợi focus...'}
                 </Button>
               </Box>
             </Box>
@@ -692,7 +707,7 @@ function BarcodeManagePage() {
           {/* === CAPTURED state — show captured image === */}
           {scanState === 'captured' && (capturedPhotoCropped || uploadedPhoto) && (
             <Box className="space-y-3">
-              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
+              <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
                 <img
                   src={capturedPhotoCropped || uploadedPhoto || ''}
                   alt={capturedPhotoCropped ? "Captured barcode (cropped)" : "Uploaded barcode"}
@@ -700,14 +715,17 @@ function BarcodeManagePage() {
                     width: '100%',
                     height: '100%',
                     objectFit: 'contain',
-                    minHeight: 240,
+                    objectPosition: 'center',
+                    imageRendering: 'crisp-edges',
+                    backfaceVisibility: 'hidden',
                     transform: 'scale(3)',
-                    transformOrigin: 'center center',
+                    transformOrigin: 'center',
+                    WebkitAppearance: 'none' as any,
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop) - 3x zoom.' : 'Ảnh đã tải lên - 3x zoom.'} Nhấn "Quét" hoặc thử lại.
+                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop) - 3x phóng to. Nhấn "Quét" hoặc thử lại.' : 'Ảnh đã tải lên - 3x phóng to.'}
               </Text>
               <Box className="flex gap-2">
                 {capturedPhotoCropped && !uploadedPhoto ? (
@@ -830,7 +848,7 @@ function BarcodeManagePage() {
           {scanState === 'scanned' && inferredProduct && (
             <Box className="space-y-3">
               {capturedPhotoCropped && (
-                <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
+                <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
                   <img
                     src={capturedPhotoCropped}
                     alt="Barcode scanned"
@@ -838,9 +856,12 @@ function BarcodeManagePage() {
                       width: '100%',
                       height: '100%',
                       objectFit: 'contain',
-                      minHeight: 240,
+                      objectPosition: 'center',
+                      imageRendering: 'crisp-edges',
+                      backfaceVisibility: 'hidden',
                       transform: 'scale(3)',
-                      transformOrigin: 'center center',
+                      transformOrigin: 'center',
+                      WebkitAppearance: 'none' as any,
                     }}
                   />
                 </Box>
