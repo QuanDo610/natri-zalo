@@ -24,38 +24,8 @@ import type { ApiError, BarcodeItemInfo } from '@/types';
 
 const { Option } = Select;
 
-// ── Zoom configuration ──
-const ZOOM_LEVEL = 3; // Fixed 3x zoom for barcode capture
-
-/**
- * Convert UI overlay rectangle coordinates to source video/image coordinates
- * accounting for CSS scale transform with center origin.
- */
-function calculateSourceCropRect(
-  uiOverlayPercent: { left: number; top: number; width: number; height: number },
-  sourceWidth: number,
-  sourceHeight: number,
-  zoomFactor: number,
-): { x: number; y: number; width: number; height: number } {
-  // Center point
-  const centerX = sourceWidth / 2;
-  const centerY = sourceHeight / 2;
-  
-  // UI overlay in pixels
-  const uiX = Math.floor(sourceWidth * uiOverlayPercent.left);
-  const uiY = Math.floor(sourceHeight * uiOverlayPercent.top);
-  const uiW = Math.floor(sourceWidth * uiOverlayPercent.width);
-  const uiH = Math.floor(sourceHeight * uiOverlayPercent.height);
-  
-  // Map UI coordinates back to source with zoom transform center origin
-  // Formula: sourceCoord = center + (uiCoord - center) / zoomFactor
-  const sourceX = Math.floor(centerX + (uiX - centerX) / zoomFactor);
-  const sourceY = Math.floor(centerY + (uiY - centerY) / zoomFactor);
-  const sourceW = Math.floor(uiW / zoomFactor);
-  const sourceH = Math.floor(uiH / zoomFactor);
-  
-  return { x: sourceX, y: sourceY, width: sourceW, height: sourceH };
-}
+// ── DEPRECATED: Using DOM-based crop calculation instead ──
+// const ZOOM_LEVEL = 3; // Fixed 3x zoom for barcode capture
 
 type ScanState =
   | 'idle'           // Chưa bắt đầu quét
@@ -66,6 +36,54 @@ type ScanState =
   | 'saving'         // Đang gửi lên backend
   | 'saved'          // Lưu thành công
   | 'error';         // Lỗi (camera / API / format)
+
+// ── Helper: Calculate intersection of 2 DOMRects ──
+function getIntersectionRect(a: DOMRect, b: DOMRect): DOMRect | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  
+  if (left >= right || top >= bottom) return null;
+  
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+// ── Helper: Compute source crop rect from DOM elements (accounting for scale/transform) ──
+function computeSourceCropRectFromDom(
+  videoElement: HTMLVideoElement,
+  cropFrameElement: HTMLElement | null,
+): { x: number; y: number; width: number; height: number } | null {
+  if (!cropFrameElement) return null;
+  
+  const videoRect = videoElement.getBoundingClientRect();
+  const frameRect = cropFrameElement.getBoundingClientRect();
+  
+  // Find intersection
+  const intersectionRect = getIntersectionRect(videoRect, frameRect);
+  if (!intersectionRect) {
+    console.warn('[Crop] No intersection between video and frame');
+    return null;
+  }
+  
+  // Map UI pixels to video source pixels
+  const scaleX = videoElement.videoWidth / videoRect.width;
+  const scaleY = videoElement.videoHeight / videoRect.height;
+  
+  const sx = Math.max(0, Math.floor((intersectionRect.left - videoRect.left) * scaleX));
+  const sy = Math.max(0, Math.floor((intersectionRect.top - videoRect.top) * scaleY));
+  let sw = Math.floor(intersectionRect.width * scaleX);
+  let sh = Math.floor(intersectionRect.height * scaleY);
+  
+  // Clamp to video bounds
+  sw = Math.min(sw, videoElement.videoWidth - sx);
+  sh = Math.min(sh, videoElement.videoHeight - sy);
+  
+  console.log(`[Crop] 📊 UI rect: ${videoRect.width}x${videoRect.height}, frame: ${frameRect.width}x${frameRect.height}`);
+  console.log(`[Crop] 🎯 Source crop: x=${sx}, y=${sy}, w=${sw}, h=${sh}`);
+  
+  return { x: sx, y: sy, width: sw, height: sh };
+}
 
 function BarcodeManagePage() {
   const navigate = useNavigate();
@@ -88,6 +106,7 @@ function BarcodeManagePage() {
   const [errorType, setErrorType] = useState<ScannerError | 'API' | 'INVALID_FORMAT' | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
+  const cropFrameRef = useRef<HTMLDivElement>(null); // ⭐ For DOM-based crop calculation
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -227,16 +246,15 @@ function BarcodeManagePage() {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       
-      console.log(`[Capture] 📹 Source video size: ${vw}x${vh}, zoom level: ${ZOOM_LEVEL}x`);
+      console.log(`[Capture] 📹 Video source: ${vw}x${vh}`);
       
-      // UI overlay rect (percentages): left 15%, top 25%, width 70%, height 50%
-      const uiOverlay = { left: 0.15, top: 0.25, width: 0.7, height: 0.5 };
+      // Compute source crop rect from DOM (accounts for scale/transform/zoom)
+      const sourceCrop = computeSourceCropRectFromDom(video, cropFrameRef.current);
+      if (!sourceCrop) {
+        throw new Error('Cannot compute crop rect from DOM');
+      }
       
-      // Convert UI overlay to source crop coordinates, accounting for zoom
-      const sourceCrop = calculateSourceCropRect(uiOverlay, vw, vh, ZOOM_LEVEL);
-      console.log(`[Capture] 📊 Source crop rect: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`);
-      
-      // Capture full video frame first
+      // Capture full frame to canvas
       const fullCanvas = document.createElement('canvas');
       const fullCtx = fullCanvas.getContext('2d');
       if (!fullCtx) throw new Error('Cannot create canvas context');
@@ -255,6 +273,7 @@ function BarcodeManagePage() {
       cropCanvas.width = sourceCrop.width;
       cropCanvas.height = sourceCrop.height;
       
+      // Draw cropped region (exact source pixels)
       cropCtx.drawImage(
         video,
         sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
@@ -263,7 +282,6 @@ function BarcodeManagePage() {
       
       const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
       setCapturedPhotoCropped(croppedPhotoDataUrl); // ⭐⭐⭐ FOR DECODE
-      
       setCropRect(sourceCrop);
       setSourceSize({ width: vw, height: vh });
       
@@ -590,6 +608,7 @@ function BarcodeManagePage() {
                 
                 {/* Crop frame overlay guide */}
                 <div
+                  ref={cropFrameRef}
                   className="absolute border-2 border-green-400"
                   style={{
                     left: '15%',
@@ -670,25 +689,25 @@ function BarcodeManagePage() {
           )}
 
           {/* === CAPTURED state — show captured image === */}
-          {scanState === 'captured' && (capturedPhoto || uploadedPhoto) && (
+          {scanState === 'captured' && (capturedPhotoCropped || uploadedPhoto) && (
             <Box className="space-y-3">
               <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
                 <img
-                  src={capturedPhoto || uploadedPhoto || ''}
-                  alt={capturedPhoto ? "Captured barcode" : "Uploaded barcode"}
+                  src={capturedPhotoCropped || uploadedPhoto || ''}
+                  alt={capturedPhotoCropped ? "Captured barcode (cropped)" : "Uploaded barcode"}
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'cover',
+                    objectFit: 'contain',
                     minHeight: 240,
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhoto ? 'Ảnh đã chụp từ camera.' : 'Ảnh đã tải lên.'} Nhấn "Quét" hoặc thử lại.
+                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop).' : 'Ảnh đã tải lên.'} Nhấn "Quét" hoặc thử lại.
               </Text>
               <Box className="flex gap-2">
-                {capturedPhoto ? (
+                {capturedPhotoCropped && !uploadedPhoto ? (
                   // Nếu là ảnh chụp, chỉ cho phép chụp lại
                   <Button 
                     variant="secondary" 
