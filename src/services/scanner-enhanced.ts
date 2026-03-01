@@ -813,3 +813,41 @@ export async function captureAndDecode(videoElement: HTMLVideoElement): Promise<
     debugInfo: result.debugInfo
   };
 }
+
+/** 
+ * Decode barcode from a cropped photo (data URL or Blob)
+ * This MUST be used instead of captureAndDecode when you have a pre-cropped photo
+ * 
+ * @param dataUrl - Base64 data URL from canvas.toDataURL()
+ * @param cropRect - Optional: crop rectangle info for logging
+ * @returns Promise with barcode and debug info
+ */
+export async function decodeFromCroppedPhoto(
+  dataUrl: string,
+  cropRect?: { x: number; y: number; width: number; height: number },
+): Promise<{
+  barcode?: string;
+  debugInfo?: string;
+}> {
+  try {
+    // Convert data URL to File
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const file = new File([blob], 'cropped-photo.jpg', { type: 'image/jpeg' });
+    
+    const result = await decodeFromImageFile(file);
+    
+    let debugInfo = result.debugInfo || '';
+    if (cropRect) {
+      debugInfo = `Cropped(${cropRect.width}x${cropRect.height}@${cropRect.x},${cropRect.y}). ${debugInfo}`;
+    }
+    
+    return {
+      barcode: result.barcode,
+      debugInfo,
+    };
+  } catch (err) {
+    console.error('[decodeFromCroppedPhoto] Error:', err);
+    throw err;
+  }
+}

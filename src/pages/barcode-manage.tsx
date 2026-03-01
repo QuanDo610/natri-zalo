@@ -12,6 +12,7 @@ import {
   startCameraPreview,
   captureAndDecode,
   decodeFromImageFile,
+  decodeFromCroppedPhoto,
   isValidBarcode,
   parseBarcodePrefix,
   SCANNER_VERSION,
@@ -42,6 +43,7 @@ function BarcodeManagePage() {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
   const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
@@ -108,6 +110,7 @@ function BarcodeManagePage() {
     setScannedBarcode('');
     setInferredProduct(null);
     setCapturedPhoto(null);
+    setCropRect(null);
     setUploadedPhoto(null);
     setErrorMessage('');
     setErrorType(null);
@@ -160,6 +163,7 @@ function BarcodeManagePage() {
     }
     stopScan();
     setCapturedPhoto(null);
+    setCropRect(null);
     setUploadedPhoto(null);
     setScanState('idle');
   };
@@ -211,8 +215,10 @@ function BarcodeManagePage() {
       
       const imageData = canvas.toDataURL('image/jpeg', 0.92);
       setCapturedPhoto(imageData);
+      // Store crop rectangle based on original video dimensions
+      setCropRect({ x: focusX, y: focusY, width: focusW, height: focusH });
       setScanState('captured');
-      console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height);
+      console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height, 'from area', focusX, focusY, focusW, focusH);
     } catch (err) {
       console.error('Capture error:', err);
       setScanState('error');
@@ -223,11 +229,12 @@ function BarcodeManagePage() {
 
   // ── Quét barcode từ ảnh đã chụp hoặc upload ──
   const handleScanFromPhoto = async () => {
-    if (capturedPhoto && videoRef.current) {
-      // Scan from camera-captured photo
+    if (capturedPhoto) {
+      // Scan from camera-captured photo (already cropped)
       setScanningPhoto(true);
       try {
-        const result = await captureAndDecode(videoRef.current);
+        // Use the already-cropped photo, don't re-capture from video
+        const result = await decodeFromCroppedPhoto(capturedPhoto, cropRect || undefined);
         if (result.barcode && isValidBarcode(result.barcode)) {
           setScannedBarcode(result.barcode);
           const parsed = parseBarcodePrefix(result.barcode);
@@ -526,9 +533,76 @@ function BarcodeManagePage() {
                     transformOrigin: 'center center',
                   }}
                 />
+                
+                {/* Crop frame overlay guide */}
+                <div
+                  className="absolute border-2 border-green-400"
+                  style={{
+                    left: '15%',
+                    top: '25%',
+                    width: '70%',
+                    height: '50%',
+                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.4)',
+                    borderRadius: '4px',
+                  }}
+                />
+                
+                {/* Corner markers */}
+                <div
+                  className="absolute"
+                  style={{
+                    left: '15%',
+                    top: '25%',
+                    width: '20px',
+                    height: '20px',
+                    border: '3px solid #10b981',
+                    borderRight: 'none',
+                    borderBottom: 'none',
+                    borderRadius: '4px 0 0 0',
+                  }}
+                />
+                <div
+                  className="absolute"
+                  style={{
+                    right: '15%',
+                    top: '25%',
+                    width: '20px',
+                    height: '20px',
+                    border: '3px solid #10b981',
+                    borderLeft: 'none',
+                    borderBottom: 'none',
+                    borderRadius: '0 4px 0 0',
+                  }}
+                />
+                <div
+                  className="absolute"
+                  style={{
+                    left: '15%',
+                    bottom: '25%',
+                    width: '20px',
+                    height: '20px',
+                    border: '3px solid #10b981',
+                    borderRight: 'none',
+                    borderTop: 'none',
+                    borderRadius: '0 0 0 4px',
+                  }}
+                />
+                <div
+                  className="absolute"
+                  style={{
+                    right: '15%',
+                    bottom: '25%',
+                    width: '20px',
+                    height: '20px',
+                    border: '3px solid #10b981',
+                    borderLeft: 'none',
+                    borderTop: 'none',
+                    borderRadius: '0 0 4px 0',
+                  }}
+                />
               </Box>
               <Text size="xSmall" className="text-center text-gray-500">
-                {cssZoom ? '🔍 Đã phóng to 2x - Đưa barcode vào giữa khung và chụp ảnh' : 'Đưa barcode vào khung và chụp ảnh'}
+                {cssZoom ? '🔍 Đã phóng to 2x - Đưa barcode vào giữa khung xanh và chụp ảnh' : 'Đưa barcode vào khung xanh và chụp ảnh'}
               </Text>
               <Box className="flex gap-2">
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
@@ -572,6 +646,7 @@ function BarcodeManagePage() {
                         cleanupRef.current = null;
                       }
                       setCapturedPhoto(null);
+                      setCropRect(null);
                       setCssZoom(false);
                       setScanState('previewing');
                       
