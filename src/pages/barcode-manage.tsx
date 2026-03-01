@@ -259,6 +259,7 @@ function BarcodeManagePage() {
       const fullCtx = fullCanvas.getContext('2d');
       if (!fullCtx) throw new Error('Cannot create canvas context');
       
+      fullCtx.imageSmoothingEnabled = false;
       fullCanvas.width = vw;
       fullCanvas.height = vh;
       fullCtx.drawImage(video, 0, 0, vw, vh);
@@ -270,6 +271,7 @@ function BarcodeManagePage() {
       const cropCtx = cropCanvas.getContext('2d');
       if (!cropCtx) throw new Error('Cannot create crop canvas context');
       
+      cropCtx.imageSmoothingEnabled = false;
       cropCanvas.width = sourceCrop.width;
       cropCanvas.height = sourceCrop.height;
       
@@ -590,7 +592,7 @@ function BarcodeManagePage() {
           {/* === PREVIEWING state — camera preview === */}
           {scanState === 'previewing' && (
             <Box className="space-y-3">
-              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
+              <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 400, aspectRatio: '4/3' }}>
                 <video
                   ref={videoRef}
                   autoPlay
@@ -599,10 +601,9 @@ function BarcodeManagePage() {
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'cover',
-                    minHeight: 240,
-                    transform: cssZoom ? 'scale(2)' : 'none',
-                    transformOrigin: 'center center',
+                    objectFit: 'contain',
+                    backgroundColor: '#000',
+                    imageRendering: 'crisp-edges',
                   }}
                 />
                 

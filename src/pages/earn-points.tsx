@@ -226,6 +226,8 @@ function EarnPointsPage() {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Cannot create canvas');
       
+      ctx.imageSmoothingEnabled = false;
+      
       const video = videoRef.current;
       const vw = video.videoWidth;
       const vh = video.videoHeight;
@@ -313,6 +315,8 @@ function EarnPointsPage() {
               setScanningPhoto(false);
               return;
             }
+            
+            ctx.imageSmoothingEnabled = false;
 
             // Try different sizes and processing
             const attempts = [
