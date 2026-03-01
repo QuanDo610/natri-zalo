@@ -252,23 +252,26 @@ function BarcodeManagePage() {
       
       // Capture ONLY the crop region directly (single unified image)
       const cropCanvas = document.createElement('canvas');
-      const cropCtx = cropCanvas.getContext('2d');
+      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
       if (!cropCtx) throw new Error('Cannot create canvas context');
       
+      // MAXIMIZE capture quality: disable ALL smoothing
       cropCtx.imageSmoothingEnabled = false;
+      cropCtx.imageSmoothingQuality = 'high';
       cropCtx.filter = 'none';
+      cropCtx.globalCompositeOperation = 'source-over';
       cropCanvas.width = sourceCrop.width;
       cropCanvas.height = sourceCrop.height;
       
-      // Draw cropped region (exact source pixels - this is THE image for everything)
+      // Draw cropped region at FULL resolution (exact source pixels - this is THE image for everything)
       cropCtx.drawImage(
         video,
         sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
         0, 0, sourceCrop.width, sourceCrop.height
       );
       
-      // Single unified image: crop region at 0.95 quality (used for both preview and decode)
-      const photoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
+      // Single unified image: crop region at MAXIMUM quality (1.0 = 100% JPEG quality no compression)
+      const photoDataUrl = cropCanvas.toDataURL('image/jpeg', 1.0);
       setCapturedPhoto(photoDataUrl);
       
       setScanState('captured');
@@ -576,20 +579,33 @@ function BarcodeManagePage() {
           {/* === PREVIEWING state — camera preview === */}
           {scanState === 'previewing' && (
             <Box className="space-y-3">
-              <Box className="relative overflow-hidden bg-black" style={{ minHeight: 420, aspectRatio: '4/3' }}>
+              <Box className="relative overflow-hidden bg-black" style={{ 
+                minHeight: 420, 
+                aspectRatio: '16/9',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
+                  disablePictureInPicture
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'contain',
+                    objectFit: 'cover',
                     backgroundColor: '#000',
-                    imageRendering: 'crisp-edges',
+                    imageRendering: 'pixelated' as any,
                     WebkitAppearance: 'none' as any,
                     MozAppearance: 'none' as any,
+                    WebkitBackfaceVisibility: 'hidden' as any,
+                    backfaceVisibility: 'hidden' as any,
+                    WebkitFontSmoothing: 'antialiased' as any,
+                    textRendering: 'geometricPrecision' as any,
+                    transform: 'translateZ(0)' as any,
+                    WebkitTransform: 'translateZ(0)' as any,
                   }}
                 />
                 
@@ -683,7 +699,13 @@ function BarcodeManagePage() {
           {/* === CAPTURED state — show captured image === */}
           {scanState === 'captured' && (capturedPhoto || uploadedPhoto) && (
             <Box className="space-y-3">
-              <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
+              <Box className="relative overflow-hidden bg-black" style={{ 
+                minHeight: 280, 
+                aspectRatio: '16/9',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
                 <img
                   src={capturedPhoto || uploadedPhoto || ''}
                   alt={capturedPhoto ? "Captured barcode (cropped)" : "Uploaded barcode"}
@@ -692,11 +714,13 @@ function BarcodeManagePage() {
                     height: '100%',
                     objectFit: 'contain',
                     objectPosition: 'center',
-                    imageRendering: 'crisp-edges',
-                    backfaceVisibility: 'hidden',
-                    transform: 'scale(3)',
+                    imageRendering: 'pixelated' as any,
+                    WebkitBackfaceVisibility: 'hidden' as any,
+                    backfaceVisibility: 'hidden' as any,
+                    transform: 'scale(3) translateZ(0)',
                     transformOrigin: 'center',
                     WebkitAppearance: 'none' as any,
+                    textRendering: 'geometricPrecision' as any,
                   }}
                 />
               </Box>
@@ -821,7 +845,13 @@ function BarcodeManagePage() {
           {scanState === 'scanned' && inferredProduct && (
             <Box className="space-y-3">
               {capturedPhoto && (
-                <Box className="relative overflow-hidden bg-black" style={{ minHeight: 280, aspectRatio: '4/3' }}>
+                <Box className="relative overflow-hidden bg-black" style={{ 
+                  minHeight: 280, 
+                  aspectRatio: '16/9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
                   <img
                     src={capturedPhoto}
                     alt="Barcode scanned"
@@ -830,11 +860,13 @@ function BarcodeManagePage() {
                       height: '100%',
                       objectFit: 'contain',
                       objectPosition: 'center',
-                      imageRendering: 'crisp-edges',
-                      backfaceVisibility: 'hidden',
-                      transform: 'scale(3)',
+                      imageRendering: 'pixelated' as any,
+                      WebkitBackfaceVisibility: 'hidden' as any,
+                      backfaceVisibility: 'hidden' as any,
+                      transform: 'scale(3) translateZ(0)',
                       transformOrigin: 'center',
                       WebkitAppearance: 'none' as any,
+                      textRendering: 'geometricPrecision' as any,
                     }}
                   />
                 </Box>

@@ -623,6 +623,11 @@ export function startCameraPreview(
           facingMode: 'environment',
           width: { min: 1280, ideal: 1920, max: 4096 },
           height: { min: 720, ideal: 1080, max: 2160 },
+          aspectRatio: { ideal: 16 / 9 },
+          // Prioritize focus and exposure quality — disable noise processing that blurs
+          autoGainControl: true,
+          noiseSuppression: false,
+          echoCancellation: false,
         },
       });
       
@@ -635,14 +640,23 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // Configure video element for MAXIMUM sharpness
+      // Configure video element for MAXIMUM sharpness + crystal clarity
       videoElement.setAttribute('playsinline', 'true');
-      (videoElement as any).style.imageRendering = 'crisp-edges';
+      videoElement.setAttribute('disablepictureinpicture', 'true');
+      (videoElement as any).style.imageRendering = 'pixelated';
       (videoElement as any).style.backfaceVisibility = 'hidden';
-      (videoElement as any).perspective = 'none';
+      (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
+      (videoElement as any).style.perspective = 'none';
+      (videoElement as any).style.WebkitPerspective = 'none';
       (videoElement as any).style.filter = 'none';
-      (videoElement as any).style.objectFit = 'contain';
+      (videoElement as any).style.objectFit = 'cover';
       (videoElement as any).style.objectPosition = 'center';
+      (videoElement as any).style.WebkitFontSmoothing = 'antialiased';
+      (videoElement as any).style.textRendering = 'geometricPrecision';
+      (videoElement as any).style.transform = 'translateZ(0)';
+      (videoElement as any).style.WebkitTransform = 'translateZ(0)';
+      (videoElement as any).style.lineHeight = '0';
+      (videoElement as any).style.fontSize = '0';
       
       // Wait briefly for stream setup
       await new Promise(resolve => setTimeout(resolve, 300));
