@@ -621,8 +621,8 @@ export function startCameraPreview(
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { min: 1280, ideal: 1920, max: 2560 },
+          height: { min: 720, ideal: 1080, max: 1440 },
         },
       });
       
@@ -640,6 +640,13 @@ export function startCameraPreview(
       
       try {
         await videoElement.play();
+        
+        // Log actual camera resolution achieved
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          const settings = videoTrack.getSettings();
+          console.log(`[Camera] ✅ Stream resolution: ${settings.width}×${settings.height}, FPS: ${settings.frameRate}, Autofocus: ${settings.focusMode}`);
+        }
       } catch (playError: any) {
         // If play() fails with interrupt error, try once more
         if (playError.name === 'AbortError') {

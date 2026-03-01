@@ -263,7 +263,7 @@ function BarcodeManagePage() {
       fullCanvas.width = vw;
       fullCanvas.height = vh;
       fullCtx.drawImage(video, 0, 0, vw, vh);
-      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.92);
+      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.98);
       setCapturedPhoto(fullPhotoDataUrl);
       
       // Crop exact region for barcode decode
@@ -282,7 +282,7 @@ function BarcodeManagePage() {
         0, 0, sourceCrop.width, sourceCrop.height
       );
       
-      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
+      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.98);
       setCapturedPhotoCropped(croppedPhotoDataUrl); // ⭐⭐⭐ FOR DECODE
       setCropRect(sourceCrop);
       setSourceSize({ width: vw, height: vh });

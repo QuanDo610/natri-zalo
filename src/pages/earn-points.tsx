@@ -154,15 +154,10 @@ function EarnPointsPage() {
       );
       cleanupRef.current = cleanup;
 
-      // Wait for camera stream to be ready, then apply zoom
+      // Wait for camera stream to be ready, then apply hardware zoom
       setTimeout(async () => {
-        // Try hardware zoom x3 first
         const hwZoomOk = await setPreviewZoom(3.0);
-        if (!hwZoomOk) {
-          // Hardware zoom not supported — use CSS transform as visual zoom
-          setCssZoom(true);
-          console.log('[Scan] Using CSS zoom fallback (scale 2x)');
-        }
+        console.log('[Scan] Hardware zoom ' + (hwZoomOk ? '✅ applied' : '❌ not supported on this device'));
       }, 700);
     }, 100);
   };
@@ -243,7 +238,7 @@ function EarnPointsPage() {
       canvas.height = focusH;
       
       if (cssZoom) {
-        console.log('[Capture] CSS zoom: capturing focus frame only (' + focusW + 'x' + focusH + ')');
+        console.log('[Capture] CSS zoom fallback: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       } else {
         console.log('[Capture] Hardware zoom x3: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       }
@@ -251,7 +246,7 @@ function EarnPointsPage() {
       // Capture focus frame area to canvas (no upscaling, exact crop)
       ctx.drawImage(video, focusX, focusY, focusW, focusH, 0, 0, focusW, focusH);
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.92);
+      const imageData = canvas.toDataURL('image/jpeg', 0.98);
       setCapturedPhoto(imageData);
       console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height);
     } catch (err) {
@@ -866,11 +861,11 @@ function EarnPointsPage() {
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-cover"
-                      style={cssZoom ? {
-                        transform: 'scale(2)',
-                        transformOrigin: 'center center',
-                      } : undefined}
+                      className="w-full h-full object-contain"
+                      style={{
+                        backgroundColor: '#000',
+                        imageRendering: 'crisp-edges',
+                      }}
                     />
                     
                     {/* Scanning line animation */}
