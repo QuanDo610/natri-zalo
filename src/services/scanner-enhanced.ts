@@ -621,8 +621,8 @@ export function startCameraPreview(
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
-          width: { min: 1280, ideal: 1920, max: 2560 },
-          height: { min: 720, ideal: 1080, max: 1440 },
+          width: { min: 1280, ideal: 1280, max: 1920 },
+          height: { min: 720, ideal: 720, max: 1080 },
         },
       });
       
@@ -635,11 +635,14 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // Apply crisp rendering to video element to prevent blur
+      // Configure video element for sharp playback
+      videoElement.setAttribute('decoding', 'async');
+      videoElement.setAttribute('playsinline', 'true');
       (videoElement as any).style.imageRendering = 'crisp-edges';
+      (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
       
-      // Wait for camera to stabilize and autofocus lock (1-1.5s)
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      // Wait longer for autofocus to properly lock (2-2.5s for reliable focus)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       try {
         await videoElement.play();
