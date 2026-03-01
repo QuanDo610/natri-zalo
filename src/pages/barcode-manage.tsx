@@ -700,11 +700,13 @@ function BarcodeManagePage() {
                     height: '100%',
                     objectFit: 'contain',
                     minHeight: 240,
+                    transform: 'scale(3)',
+                    transformOrigin: 'center center',
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop).' : 'Ảnh đã tải lên.'} Nhấn "Quét" hoặc thử lại.
+                {capturedPhotoCropped ? 'Ảnh đã chụp từ camera (đã crop) - 3x zoom.' : 'Ảnh đã tải lên - 3x zoom.'} Nhấn "Quét" hoặc thử lại.
               </Text>
               <Box className="flex gap-2">
                 {capturedPhotoCropped && !uploadedPhoto ? (
@@ -826,6 +828,22 @@ function BarcodeManagePage() {
           {/* === SCANNED state — show result, confirm save === */}
           {scanState === 'scanned' && inferredProduct && (
             <Box className="space-y-3">
+              {capturedPhotoCropped && (
+                <Box className="relative rounded-lg overflow-hidden bg-black" style={{ minHeight: 240 }}>
+                  <img
+                    src={capturedPhotoCropped}
+                    alt="Barcode scanned"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                      minHeight: 240,
+                      transform: 'scale(3)',
+                      transformOrigin: 'center center',
+                    }}
+                  />
+                </Box>
+              )}
               <Box className="bg-white rounded-lg p-3 border border-blue-300 space-y-2">
                 <Text size="xSmall" className="text-gray-500">Barcode đã quét:</Text>
                 <Text size="normal" bold className="text-blue-700 break-all">

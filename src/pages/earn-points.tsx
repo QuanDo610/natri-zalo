@@ -846,6 +846,14 @@ function EarnPointsPage() {
                     src={capturedPhoto || uploadedPhoto || ''}
                     alt="Barcode preview"
                     className="w-full h-full object-contain"
+                    style={
+                      capturedPhoto
+                        ? {
+                            transform: 'scale(3)',
+                            transformOrigin: 'center center',
+                          }
+                        : undefined
+                    }
                   />
                 ) : (
                   <>
