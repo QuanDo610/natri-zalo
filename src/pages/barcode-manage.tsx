@@ -24,6 +24,39 @@ import type { ApiError, BarcodeItemInfo } from '@/types';
 
 const { Option } = Select;
 
+// ── Zoom configuration ──
+const ZOOM_LEVEL = 3; // Fixed 3x zoom for barcode capture
+
+/**
+ * Convert UI overlay rectangle coordinates to source video/image coordinates
+ * accounting for CSS scale transform with center origin.
+ */
+function calculateSourceCropRect(
+  uiOverlayPercent: { left: number; top: number; width: number; height: number },
+  sourceWidth: number,
+  sourceHeight: number,
+  zoomFactor: number,
+): { x: number; y: number; width: number; height: number } {
+  // Center point
+  const centerX = sourceWidth / 2;
+  const centerY = sourceHeight / 2;
+  
+  // UI overlay in pixels
+  const uiX = Math.floor(sourceWidth * uiOverlayPercent.left);
+  const uiY = Math.floor(sourceHeight * uiOverlayPercent.top);
+  const uiW = Math.floor(sourceWidth * uiOverlayPercent.width);
+  const uiH = Math.floor(sourceHeight * uiOverlayPercent.height);
+  
+  // Map UI coordinates back to source with zoom transform center origin
+  // Formula: sourceCoord = center + (uiCoord - center) / zoomFactor
+  const sourceX = Math.floor(centerX + (uiX - centerX) / zoomFactor);
+  const sourceY = Math.floor(centerY + (uiY - centerY) / zoomFactor);
+  const sourceW = Math.floor(uiW / zoomFactor);
+  const sourceH = Math.floor(uiH / zoomFactor);
+  
+  return { x: sourceX, y: sourceY, width: sourceW, height: sourceH };
+}
+
 type ScanState =
   | 'idle'           // Chưa bắt đầu quét
   | 'previewing'     // Camera preview, chưa chụp ảnh
@@ -42,8 +75,10 @@ function BarcodeManagePage() {
   // Scan state
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [capturedPhotoCropped, setCapturedPhotoCropped] = useState<string | null>(null); // ⭐ Cropped bitmap for decode
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null); // Source dimensions
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
   const [cssZoom, setCssZoom] = useState(false); // CSS zoom fallback when hardware zoom not supported
@@ -110,7 +145,9 @@ function BarcodeManagePage() {
     setScannedBarcode('');
     setInferredProduct(null);
     setCapturedPhoto(null);
+    setCapturedPhotoCropped(null);
     setCropRect(null);
+    setSourceSize(null);
     setUploadedPhoto(null);
     setErrorMessage('');
     setErrorType(null);
@@ -163,7 +200,9 @@ function BarcodeManagePage() {
     }
     stopScan();
     setCapturedPhoto(null);
+    setCapturedPhotoCropped(null);
     setCropRect(null);
+    setSourceSize(null);
     setUploadedPhoto(null);
     setScanState('idle');
   };
@@ -184,41 +223,52 @@ function BarcodeManagePage() {
     }
 
     try {
-      console.log('[Capture] Taking zoomed photo quickly...');
-      
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Cannot create canvas');
-      
       const video = videoRef.current;
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       
-      // Focus frame dimensions (70% width, 50% height)
-      const focusX = Math.floor(vw * 0.15);  // 15% margin from left
-      const focusY = Math.floor(vh * 0.25);  // 25% margin from top
-      const focusW = Math.floor(vw * 0.7);   // 70% of width
-      const focusH = Math.floor(vh * 0.5);   // 50% of height
+      console.log(`[Capture] 📹 Source video size: ${vw}x${vh}, zoom level: ${ZOOM_LEVEL}x`);
       
-      // Set canvas to focus frame size (not full video)
-      canvas.width = focusW;
-      canvas.height = focusH;
+      // UI overlay rect (percentages): left 15%, top 25%, width 70%, height 50%
+      const uiOverlay = { left: 0.15, top: 0.25, width: 0.7, height: 0.5 };
       
-      if (cssZoom) {
-        console.log('[Capture] CSS zoom: capturing focus frame only (' + focusW + 'x' + focusH + ')');
-      } else {
-        console.log('[Capture] Hardware zoom x3: capturing focus frame only (' + focusW + 'x' + focusH + ')');
-      }
+      // Convert UI overlay to source crop coordinates, accounting for zoom
+      const sourceCrop = calculateSourceCropRect(uiOverlay, vw, vh, ZOOM_LEVEL);
+      console.log(`[Capture] 📊 Source crop rect: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`);
       
-      // Capture focus frame area to canvas (no upscaling, exact crop)
-      ctx.drawImage(video, focusX, focusY, focusW, focusH, 0, 0, focusW, focusH);
+      // Capture full video frame first
+      const fullCanvas = document.createElement('canvas');
+      const fullCtx = fullCanvas.getContext('2d');
+      if (!fullCtx) throw new Error('Cannot create canvas context');
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.92);
-      setCapturedPhoto(imageData);
-      // Store crop rectangle based on original video dimensions
-      setCropRect({ x: focusX, y: focusY, width: focusW, height: focusH });
+      fullCanvas.width = vw;
+      fullCanvas.height = vh;
+      fullCtx.drawImage(video, 0, 0, vw, vh);
+      const fullPhotoDataUrl = fullCanvas.toDataURL('image/jpeg', 0.92);
+      setCapturedPhoto(fullPhotoDataUrl);
+      
+      // Crop exact region for barcode decode
+      const cropCanvas = document.createElement('canvas');
+      const cropCtx = cropCanvas.getContext('2d');
+      if (!cropCtx) throw new Error('Cannot create crop canvas context');
+      
+      cropCanvas.width = sourceCrop.width;
+      cropCanvas.height = sourceCrop.height;
+      
+      cropCtx.drawImage(
+        video,
+        sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
+        0, 0, sourceCrop.width, sourceCrop.height
+      );
+      
+      const croppedPhotoDataUrl = cropCanvas.toDataURL('image/jpeg', 0.95);
+      setCapturedPhotoCropped(croppedPhotoDataUrl); // ⭐⭐⭐ FOR DECODE
+      
+      setCropRect(sourceCrop);
+      setSourceSize({ width: vw, height: vh });
+      
       setScanState('captured');
-      console.log('[Capture] ✅ Photo captured:', canvas.width + 'x' + canvas.height, 'from area', focusX, focusY, focusW, focusH);
+      console.log(`[Capture] ✅ Full: ${vw}x${vh}, Cropped: ${sourceCrop.width}x${sourceCrop.height}`);
     } catch (err) {
       console.error('Capture error:', err);
       setScanState('error');
@@ -229,18 +279,22 @@ function BarcodeManagePage() {
 
   // ── Quét barcode từ ảnh đã chụp hoặc upload ──
   const handleScanFromPhoto = async () => {
-    if (capturedPhoto) {
-      // Scan from camera-captured photo (already cropped)
+    if (capturedPhotoCropped) {
+      // ⭐⭐⭐ CRITICAL: MUST scan from CROPPED photo only
       setScanningPhoto(true);
       try {
-        // Use the already-cropped photo, don't re-capture from video
-        const result = await decodeFromCroppedPhoto(capturedPhoto, cropRect || undefined);
+        console.log(`[Decode] 🔍 Decoding from cropped photo: ${sourceSize ? sourceSize.width + 'x' + sourceSize.height : '?'}, crop: ${cropRect ? cropRect.width + 'x' + cropRect.height : '?'}`);
+        
+        const result = await decodeFromCroppedPhoto(capturedPhotoCropped, cropRect || undefined);
+        
         if (result.barcode && isValidBarcode(result.barcode)) {
+          console.log(`[Decode] ✅ SUCCESS: ${result.barcode}`);
           setScannedBarcode(result.barcode);
           const parsed = parseBarcodePrefix(result.barcode);
           setInferredProduct(parsed);
           setScanState('scanned');
         } else {
+          console.log(`[Decode] ❌ No valid barcode found`);
           setScanState('error');
           setErrorType('INVALID_FORMAT');
           setErrorMessage('Không tìm thấy barcode hợp lệ trong ảnh. Phải bắt đầu bằng 12N5L, 12N7L, YTX4A, YTX5A hoặc YTX7A.');
@@ -646,7 +700,9 @@ function BarcodeManagePage() {
                         cleanupRef.current = null;
                       }
                       setCapturedPhoto(null);
+                      setCapturedPhotoCropped(null);
                       setCropRect(null);
+                      setSourceSize(null);
                       setCssZoom(false);
                       setScanState('previewing');
                       
