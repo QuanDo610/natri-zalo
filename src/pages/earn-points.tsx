@@ -230,31 +230,24 @@ function EarnPointsPage() {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
       
+      // Focus frame dimensions (70% width, 50% height)
+      const focusX = Math.floor(vw * 0.15);  // 15% margin from left
+      const focusY = Math.floor(vh * 0.25);  // 25% margin from top
+      const focusW = Math.floor(vw * 0.7);   // 70% of width
+      const focusH = Math.floor(vh * 0.5);   // 50% of height
+      
+      // Set canvas to focus frame size (not full video)
+      canvas.width = focusW;
+      canvas.height = focusH;
+      
       if (cssZoom) {
-        // CSS zoom x2 - crop center 50% and upscale to 2x size
-        console.log('[Capture] CSS zoom: cropping center 50% and upscaling 2x');
-        const sx = Math.floor(vw * 0.25);
-        const sy = Math.floor(vh * 0.25);
-        const sw = Math.floor(vw * 0.5);
-        const sh = Math.floor(vh * 0.5);
-        
-        // Upscale to double the cropped size for better display
-        canvas.width = sw * 2;
-        canvas.height = sh * 2;
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        console.log('[Capture] CSS zoom: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       } else {
-        // Hardware zoom x3 - crop center 33.33% area to capture zoomed region
-        console.log('[Capture] Hardware zoom x3: cropping center 33.33% area and upscaling 3x');
-        const sx = Math.floor(vw * 0.1667);
-        const sy = Math.floor(vh * 0.1667);
-        const sw = Math.floor(vw * 0.6667);
-        const sh = Math.floor(vh * 0.6667);
-        
-        // Upscale to 3x to match the zoom level
-        canvas.width = Math.floor(sw * 3);
-        canvas.height = Math.floor(sh * 3);
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        console.log('[Capture] Hardware zoom x3: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       }
+      
+      // Capture focus frame area to canvas (no upscaling, exact crop)
+      ctx.drawImage(video, focusX, focusY, focusW, focusH, 0, 0, focusW, focusH);
       
       const imageData = canvas.toDataURL('image/jpeg', 0.92);
       setCapturedPhoto(imageData);
