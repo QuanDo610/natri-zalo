@@ -635,8 +635,11 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // Wait a bit for stream to be ready, then play
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Apply crisp rendering to video element to prevent blur
+      (videoElement as any).style.imageRendering = 'crisp-edges';
+      
+      // Wait for camera to stabilize and autofocus lock (1-1.5s)
+      await new Promise(resolve => setTimeout(resolve, 1200));
       
       try {
         await videoElement.play();

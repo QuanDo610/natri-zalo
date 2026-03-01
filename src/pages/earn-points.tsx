@@ -154,10 +154,15 @@ function EarnPointsPage() {
       );
       cleanupRef.current = cleanup;
 
-      // Wait for camera stream to be ready, then apply hardware zoom
+      // Wait for camera stream to be ready, then apply zoom
       setTimeout(async () => {
+        // Try hardware zoom x3 first
         const hwZoomOk = await setPreviewZoom(3.0);
-        console.log('[Scan] Hardware zoom ' + (hwZoomOk ? '✅ applied' : '❌ not supported on this device'));
+        if (!hwZoomOk) {
+          // Hardware zoom not supported — use CSS transform as visual zoom
+          setCssZoom(true);
+          console.log('[Scan] Using CSS zoom fallback (scale 2x)');
+        }
       }, 700);
     }, 100);
   };
@@ -238,7 +243,7 @@ function EarnPointsPage() {
       canvas.height = focusH;
       
       if (cssZoom) {
-        console.log('[Capture] CSS zoom fallback: capturing focus frame only (' + focusW + 'x' + focusH + ')');
+        console.log('[Capture] CSS zoom: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       } else {
         console.log('[Capture] Hardware zoom x3: capturing focus frame only (' + focusW + 'x' + focusH + ')');
       }
@@ -792,8 +797,8 @@ function EarnPointsPage() {
           onClick={handleStopScan}
         >
           <div
-            className="bg-white rounded-3xl w-[98%] overflow-hidden flex flex-col"
-            style={{ maxHeight: '95vh', height: '95vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+            className="bg-white rounded-2xl w-[92%] max-w-md overflow-hidden flex flex-col"
+            style={{ maxHeight: '80vh', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -835,15 +840,24 @@ function EarnPointsPage() {
             )}
 
             {/* Camera / photo view */}
-            <div className="px-4 pt-3 flex-1 flex flex-col">
+            <div className="px-3 pt-3">
               <div
-                className="relative rounded-xl overflow-hidden bg-black flex-1"
+                className="relative rounded-xl overflow-hidden bg-black"
+                style={{ aspectRatio: '4/3' }}
               >
                 {(capturedPhoto || uploadedPhoto) ? (
                   <img
                     src={capturedPhoto || uploadedPhoto || ''}
                     alt="Barcode preview"
                     className="w-full h-full object-contain"
+                    style={
+                      capturedPhoto
+                        ? {
+                            transform: 'scale(3)',
+                            transformOrigin: 'center center',
+                          }
+                        : undefined
+                    }
                   />
                 ) : (
                   <>
@@ -852,11 +866,11 @@ function EarnPointsPage() {
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-contain"
-                      style={{
-                        backgroundColor: '#000',
-                        imageRendering: 'crisp-edges',
-                      }}
+                      className="w-full h-full object-cover"
+                      style={cssZoom ? {
+                        transform: 'scale(2)',
+                        transformOrigin: 'center center',
+                      } : undefined}
                     />
                     
                     {/* Scanning line animation */}
