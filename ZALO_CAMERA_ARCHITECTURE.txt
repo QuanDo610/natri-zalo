@@ -1,0 +1,459 @@
+/**
+ * ===== ZALO CAMERA API ARCHITECTURE DIAGRAM =====
+ * Visual representation of component interactions and data flow
+ */
+
+// ─────────────────────────────────────────────────────────────────────────
+// ARCHITECTURE LAYER DIAGRAM
+// ─────────────────────────────────────────────────────────────────────────
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ UI LAYER (barcode-manage.tsx)                                           │
+│                                                                          │
+│  ┌─ State ────────────────────────────────────────────────────────────┐ │
+│  │ • cameraList: [{ deviceId, label }]                               │ │
+│  │ • selectedCameraId: string                                         │ │
+│  │ • usingZaloCamera: boolean                                         │ │
+│  │ • capturedPhoto: string (blob URL)                                │ │
+│  │ • fullPhotoBlob: string (optional)                                │ │
+│  │ • scanState: 'idle' | 'previewing' | 'scanned' | 'saving'        │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Effects ──────────────────────────────────────────────────────────┐ │
+│  │ • On mount: Load camera list, check Zalo availability           │ │
+│  │ • On unmount: Clean up camera stream                             │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Handlers ─────────────────────────────────────────────────────────┐ │
+│  │ • handleStartScan()          → Permission check + stream init    │ │
+│  │ • handleStopScan()           → Cleanup                           │ │
+│  │ • handleSwitchCamera()       → switchCameraDevice()             │ │
+│  │ • handleCaptureFullPhoto()   → captureFullPhotoZalo()          │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ UI Controls ──────────────────────────────────────────────────────┐ │
+│  │ • <video ref={videoRef}>      ← Camera preview rendered here   │ │
+│  │ • Camera selection dropdown   ← Switch camera (if multi-camera)│ │
+│  │ • Torch toggle button                                           │ │
+│  │ • Start/Stop scan buttons                                       │ │
+│  │ • Capture full photo button   ← Zalo only, optional           │ │
+│  │ • ROI overlay (CSS box)       ← Shows barcode detection area   │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌──────────────────────────────────────────────────────────────────────────┐
+│ SCANNING ENGINE LAYER (scanner-enhanced.ts)                             │
+│                                                                          │
+│  ┌─ Public Exports ───────────────────────────────────────────────────┐ │
+│  │ • startCameraPreview(video, onError)                             │ │
+│  │ • startAutoScanFromStream(video, onResult, options)             │ │
+│  │ • stopScan()                                                     │ │
+│  │ • getCameraListForSwitch() → ["Front", "Back"]                 │ │
+│  │ • switchCameraDevice(deviceId)                                  │ │
+│  │ • captureFullPhotoZalo() → photoData                           │ │
+│  │ • isUsingZaloCamera() → boolean                                 │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Global State ──────────────────────────────────────────────────────┐ │
+│  │ • useZaloCamera: boolean                                         │ │
+│  │ • zaloFrameUpdateInterval: setInterval ID                      │ │
+│  │ • frameBuffer: HTMLCanvasElement                               │ │
+│  │ • currentPreviewStream: MediaStream | null                     │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Main Flows ────────────────────────────────────────────────────────┐ │
+│  │ startCameraPreview():                                           │ │
+│  │ ├─ Try Zalo API                                                │ │
+│  │ │  ├─ Check permission                                        │ │
+│  │ │  ├─ Request permission (if needed)                         │ │
+│  │ │  ├─ Create stream                                          │ │
+│  │ │  └─ Start frame polling                                    │ │
+│  │ │                                                              │ │
+│  │ └─ Fallback: getUserMedia (if Zalo unavailable/denied)      │ │
+│  │    ├─ Try 4:3 aspect ratio first                             │ │
+│  │    ├─ Fallback to 16:9                                       │ │
+│  │    └─ Apply advanced constraints                              │ │
+│  │                                                                │ │
+│  │ startAutoScanFromStream():                                    │ │
+│  │ ├─ Poll video element every 400ms                           │ │
+│  │ ├─ For each frame:                                           │ │
+│  │ │  ├─ Extract ROI region (70% center)                       │ │
+│  │ │  ├─ Upscale canvas (1.8x)                                 │ │
+│  │ │  ├─ Try enhancement (grayscale/contrast/binary/etc)      │ │
+│  │ │  ├─ Decode with ZXing/Quagga                            │ │
+│  │ │  ├─ If found: Freeze & call onBarcodeDetected()        │ │
+│  │ │  └─ If not found: Try next crop region                 │ │
+│  │ └─ Continue until detection or stop                          │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌──────────────────────────────────────────────────────────────────────────┐
+│ CAMERA ADAPTER LAYER (zmp-camera-adapter.ts)                           │
+│                                                                          │
+│  ┌─ Permission Functions ─────────────────────────────────────────────┐ │
+│  │ • checkPermission() → boolean                                   │ │
+│  │ • requestPermission() → boolean                                 │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Stream Functions ─────────────────────────────────────────────────┐ │
+│  │ • createCameraStream(video, options) → { streamActive, ... }  │ │
+│  │ • stopCameraStream()                                           │ │
+│  │ • updateCameraConstraints(constraints)                        │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Frame Functions ──────────────────────────────────────────────────┐ │
+│  │ • getCurrentFrameData() → FrameData                            │ │
+│  │ • createROICanvas(frameData, roi, options) → Canvas          │ │
+│  │ • freezeFrameFromVideo(video) → string (data URL)            │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Device Functions ─────────────────────────────────────────────────┐ │
+│  │ • getCameraList() → [{ deviceId, label, kind }]             │ │
+│  │ • switchCamera(deviceId)                                     │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Photo Functions ──────────────────────────────────────────────────┐ │
+│  │ • captureFullPhoto() → { blob, width, height, error }       │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Utility Functions ────────────────────────────────────────────────┐ │
+│  │ • isZaloCameraAvailable() → boolean                          │ │
+│  │ • getZaloCamera() → ZaloCamera | null                       │ │
+│  │ • getCameraDebugInfo() → { apiAvailable, ... }              │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌─ Global State ─────────────────────────────────────────────────────┐ │
+│  │ • currentCameraContext: CameraContext | null                 │ │
+│  │ • currentVideoElement: HTMLVideoElement | null               │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌──────────────────────────────────────────────────────────────────────────┐
+│ ZALO MINI APP CAMERA API LAYER (window.zalo.camera)                    │
+│                                                                          │
+│  ┌─ API Methods ──────────────────────────────────────────────────────┐ │
+│  │                                                                   │ │
+│  │ const ctx = zalo.camera.createCameraContext()                  │ │
+│  │                                                                   │ │
+│  │ ctx.startPreview(videoElement)                                 │ │
+│  │ ctx.stopPreview()                                              │ │
+│  │ ctx.updateMediaConstraints({ width, height, frameRate })     │ │
+│  │ ctx.setDeviceId(deviceId)                                     │ │
+│  │ ctx.takePhoto() → { data: Uint8Array, width, height }        │ │
+│  │ ctx.getFrameData() → { data: Uint8ClampedArray, ... }       │ │
+│  │ ctx.on(event, callback)                                       │ │
+│  │ ctx.off(event, callback)                                      │ │
+│  │                                                                   │ │
+│  │ zalo.camera.checkZaloCameraPermission() → { granted }        │ │
+│  │ zalo.camera.requestCameraPermission() → { granted }          │ │
+│  │ zalo.camera.getCameraList() → [{ deviceId, label, kind }]   │ │
+│  └─────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// DATA FLOW: BARCODE DETECTION CYCLE
+// ─────────────────────────────────────────────────────────────────────────
+
+START: User clicks "Start Scan"
+    ↓
+handleStartScan() in barcode-manage.tsx
+    ├─ Check if Zalo camera available
+    │   ├─ Yes: Call ZaloCamera.checkPermission()
+    │   │   ├─ Has permission: createCameraStream()
+    │   │   │   └─ SUCCESS: Create stream, set usingZaloCamera=true
+    │   │   │
+    │   │   └─ No permission: requestPermission()
+    │   │       ├─ User approves: createCameraStream() + startZaloFramePolling()
+    │   │       │   └─ SUCCESS
+    │   │       │
+    │   │       └─ User denies: Continue to fallback
+    │   │
+    │   └─ No: Continue to fallback
+    │
+    └─ Fallback: startCameraPreview(getUserMedia)
+        └─ Try constraint chain (4:3 → 16:9)
+            └─ SUCCESS or SHOW ERROR
+    ↓
+CAMERA PREVIEW ACTIVE
+    ↓
+    [ZALO PATH]                          [GETUSERMEDIUM PATH]
+    ├─ startZaloFramePolling()          ├─ Video element srcObject = stream
+    │  ├─ Every 100ms                   └─ Video element plays()
+    │  └─ Extract frame from Zalo
+    │     └─ Store in frameBuffer
+    │
+    [Both paths converge to same barcode scanning loop]
+    ↓
+startAutoScanFromStream(videoRef, onResult)
+    ├─ Every 400ms: scanFrame()
+    │   ├─ Get video element (plays continuously)
+    │   ├─ Extract ROI region: { x, y, width, height }
+    │   │   └─ Center 70% of frame (varies by crop strategy)
+    │   │
+    │   ├─ Create ROI canvas with upscaling (1.8x)
+    │   │   └─ drawImage(video, sx, sy, sw, sh, ...)
+    │   │
+    │   ├─ Apply enhancement mode
+    │   │   ├─ Try: noEnhance → grayscale → contrast → sharpen → binary → extreme
+    │   │   └─ Variants: rotate +5°/-5°, scale 0.8/1.2/1.5x
+    │   │
+    │   ├─ Try decode: ZXing + Quagga
+    │   │   ├─ Create fresh reader instance
+    │   │   ├─ Decode from ROI canvas
+    │   │   ├─ Clean result text
+    │   │   └─ Validate with isValidBarcode()
+    │   │
+    │   └─ Result handling:
+    │       ├─ SUCCESS: Freeze canvas
+    │       │   ├─ Call onBarcodeDetected(canvas, barcode)
+    │       │   │   └─ In barcode-manage.tsx:
+    │       │   │       ├─ canvas.toBlob() → JPEG 0.95
+    │       │   │       └─ URL.createObjectURL() → capturedPhoto
+    │       │   └─ Call onResult(barcode)
+    │       │       └─ setScannedBarcode() + UI update
+    │       │
+    │       └─ FAILED: Continue polling
+    │           └─ Try next crop region next frame
+    │
+    └─ Continue until:
+        ├─ Barcode detected ✓
+        ├─ User stops ✓
+        └─ Error occurs ✓
+    ↓
+SCAN COMPLETE
+    └─ User action:
+        ├─ Save: API.scanAddBarcode(code)
+        ├─ Rescan: handleRescan()
+        ├─ Capture full: handleCaptureFullPhoto() (Zalo only)
+        └─ Stop: handleStopScan()
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// EXECUTION PATH: STEP-BY-STEP WITH TIMING
+// ─────────────────────────────────────────────────────────────────────────
+
+T=0ms:     User clicks "Start Scan"
+           └─ handleStartScan() called
+
+T=0-50ms:  Check Zalo availability
+           └─ isZaloCameraAvailable() = true/false
+
+T=50-100ms: Check permission (if Zalo)
+           └─ checkPermission() → true/false
+
+T=100-200ms: If no permission, request
+            └─ requestPermission() → user dialog (3-5 seconds typically)
+
+T=200-1500ms: Create camera stream
+             ├─ createCameraStream() or getUserMedia()
+             ├─ Apply video constraints
+             ├─ Wait for video.play()
+             ├─ Wait for videoWidth > 0 (readyState ≥ 2)
+             └─ Apply advanced constraints (focus, exposure)
+
+T=1500-2500ms: Frame settling
+               ├─ Focus lock timeout
+               ├─ Exposure stabilization
+               └─ Camera ready for scanning
+
+T=2500ms:  START barcode scanning loop
+           └─ startAutoScanFromStream() interval begins
+
+T=2500-2900ms: Frame 1 processing
+               ├─ Extract ROI (crop 0)
+               ├─ Apply enhancement 0 (none)
+               ├─ Decode attempt 1
+               └─ FAILED → continue
+
+T=2900-3300ms: Frame 2 processing
+               ├─ Extract ROI (crop 1)
+               ├─ Apply enhancement 1 (grayscale)
+               ├─ Decode attempt 2
+               └─ FAILED → continue
+
+T=3300-3700ms: Frame N processing
+               ├─ Extract ROI (crop N)
+               ├─ Apply enhancement M
+               ├─ Decode attempt N
+               └─ SUCCESS! ✓ Barcode found
+
+T=3700-3750ms: Freeze and callback
+               ├─ Freeze ROI canvas
+               ├─ toBlob(callback, 'image/jpeg', 0.95)
+               ├─ URL.createObjectURL(blob)
+               ├─ onBarcodeDetected(canvas, barcode) ← Custom handler
+               └─ onResult(barcode) ← UI update
+
+T=3750ms:  UI update
+           ├─ setScannedBarcode()
+           ├─ Show detected barcode text
+           ├─ Create image preview from blob URL
+           └─ Switch UI state to 'scanned'
+
+T=3750-5000ms: User action
+               ├─ Review barcode
+               ├─ OR: Capture full photo (Zalo) → +500ms
+               ├─ OR: Rescan → goto T=2500ms
+               ├─ OR: Save → API call
+               └─ OR: Stop scan
+
+TOTAL TIME: ~3.75 seconds from start to barcode detected (typical)
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// STATE MACHINE: Application States
+// ─────────────────────────────────────────────────────────────────────────
+
+                    ┌─────────────────────────────────┐
+                    │          IDLE                   │
+                    │  (No camera open)               │
+                    │                                 │
+                    │  UI: Start button visible       │
+                    │  Camera: Stopped                │
+                    └────────────┬────────────────────┘
+                                 │ User clicks Start
+                                 ↓
+                    ┌─────────────────────────────────┐
+                    │       PREVIEWING                │
+                    │  (Camera streaming, scanning)   │
+                    │                                 │
+                    │  UI: Stop button, controls      │
+                    │  Camera: Running, ROI visible   │
+                    │  Scan: continuous barcode det   │
+                    └────────────┬────────────────────┘
+                                 │ Barcode detected
+                                 ↓
+                    ┌─────────────────────────────────┐
+                    │        SCANNED                  │
+                    │  (Barcode found, stop scanning) │
+                    │                                 │
+                    │  UI: Show barcode, Save button  │
+                    │  Camera: Still running          │
+                    │  Scan: Stopped                  │
+                    └────────────┬─────────────────┬──┘
+                                 │                 │
+                    Save button   │         Rescan button
+                                 ↓                 ↓
+                            [SAVING]         [PREVIEWING]
+                                 │
+                                 ↓
+                    ┌─────────────────────────────────┐
+                    │        SAVED                    │
+                    │  (Barcode saved to backend)     │
+                    │                                 │
+                    │  UI: Success message            │
+                    │  Camera: Stopped                │
+                    │  Can: Close or Scan again       │
+                    └─────────────────────────────────┘
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// ERROR SCENARIOS & HANDLING
+// ─────────────────────────────────────────────────────────────────────────
+
+ERROR: PERMISSION DENIED
+├─ Trigger: requestPermission() returns false
+├─ Handler: Fall back to getUserMedia
+├─ UI: Continue normally if getUserMedia works
+└─ Fallback: Show error if both fail
+
+ERROR: NO CAMERA
+├─ Trigger: getUserMedia rejected with NotFoundError
+├─ Handler: Can't retry
+└─ UI: "No camera found on this device"
+
+ERROR: HTTPS REQUIRED
+├─ Trigger: window.location.protocol !== 'https:' && !localhost
+├─ Handler: Prevent attempt, early return
+└─ UI: "Camera requires HTTPS connection"
+
+ERROR: NOT ALLOWED
+├─ Trigger: getUserMedia rejected with NotAllowedError
+├─ Handler: Similar to permission denied
+└─ UI: "Camera permission required"
+
+ERROR: DECODE FAILED
+├─ Trigger: No valid barcode found in frame
+├─ Handler: Automatically retry next frame
+├─ UI: No visible error (normal operation)
+└─ Recovery: Automatic, keep scanning
+
+ERROR: FRAME POLLING ERROR
+├─ Trigger: Zalo frame extraction fails
+├─ Handler: Logged to console, doesn't crash
+├─ UI: No visible error
+└─ Recovery: Keep polling next cycle
+
+ERROR: CAMERA STOP FAILED
+├─ Trigger: Cleanup error
+├─ Handler: Logged, continue
+└─ Recovery: Memory will be cleaned on app unload
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// CLEANUP & RESOURCE MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────
+
+handleStopScan() called
+    ├─ Clear cleanup ref function (if exists)
+    ├─ Call stopScan()
+    │   └─ Clean up scanning loop
+    ├─ Call ZaloCamera.stopCameraStream() (if using Zalo)
+    │   ├─ stopPreview()
+    │   ├─ Clear currentCameraContext
+    │   ├─ Clear currentVideoElement
+    │   └─ Set useZaloCamera = false
+    ├─ Clear zaloFrameUpdateInterval
+    ├─ Clear frameBuffer canvas
+    ├─ Stop video element
+    │   ├─ video.pause()
+    │   └─ video.srcObject = null
+    └─ Reset state
+        ├─ setCapturedPhoto(null)
+        ├─ setUploadedPhoto(null)
+        ├─ setFocusLocked(false)
+        ├─ setTorchOn(false)
+        └─ setScanState('idle')
+
+Component Unmount
+    └─ useEffect cleanup
+        ├─ Call cleanupRef.current()
+        ├─ Call stopScan()
+        └─ All resources released
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// SUMMARY: Component Responsibilities
+// ─────────────────────────────────────────────────────────────────────────
+
+barcode-manage.tsx (Page Layer)
+├─ Responsibility: UI orchestration + user interaction
+├─ Handles: Permission flow, camera selection, scan state
+├─ Stores: Camera list, scan state, captured images
+└─ Delegates: Actual scanning to scanner-enhanced.ts
+
+scanner-enhanced.ts (Scanning Engine)
+├─ Responsibility: Barcode detection logic + camera abstraction
+├─ Handles: Hybrid camera init, ROI extraction, enhancement, decode
+├─ Stores: Camera context, frame buffer, scan loops
+└─ Delegates: Camera API to zmp-camera-adapter.ts
+
+zmp-camera-adapter.ts (Camera Driver)
+├─ Responsibility: Zalo Mini App Camera API abstraction
+├─ Handles: Permission, stream creation, frame extraction
+├─ Stores: Camera context, frame data
+└─ Delegates: To Zalo API (window.zalo.camera)
+
+Zalo Mini App Camera API (OS Layer)
+├─ Responsibility: Native camera access
+├─ Provides: Camera stream, frame data, device control
+└─ Requires: User permission
+
+═══════════════════════════════════════════════════════════════════════════════
+
+File: ZALO_CAMERA_ARCHITECTURE.txt (This file)
+Purpose: Visual documentation of system architecture
+Version: 1.0.0
+Status: Reference only (no code)
+*/
