@@ -339,6 +339,46 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   
+  // ⭐ Mobile optimization: Calculate adaptive threshold based on image histogram
+  // Instead of fixed threshold, adapt to actual lighting conditions
+  let adaptiveThreshold = 128;
+  if (enhanceType === 'contrast' || enhanceType === 'binary' || enhanceType === 'extreme') {
+    // Build histogram to find optimal threshold
+    const histogram = new Uint32Array(256);
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      histogram[gray]++;
+    }
+    
+    // Otsu's method for optimal threshold calculation
+    let sumFg = 0, sumBg = 0, totalPixels = 0;
+    for (let i = 0; i < 256; i++) {
+      totalPixels += histogram[i];
+    }
+    
+    let maxVar = 0;
+    for (let t = 0; t < 256; t++) {
+      sumFg += t * histogram[t];
+      const wFg = 0;
+      let wBg = totalPixels;
+      for (let i = 0; i <= t; i++) wBg -= histogram[i];
+      
+      if (wFg === 0 || wBg === 0) continue;
+      
+      const muFg = sumFg / wFg;
+      const muBg = (sumFg - sumFg) / wBg;
+      const varBetween = wFg * wBg * Math.pow(muFg - muBg, 2);
+      
+      if (varBetween > maxVar) {
+        maxVar = varBetween;
+        adaptiveThreshold = t;
+      }
+    }
+    
+    // Clamp threshold to reasonable range for barcode detection
+    adaptiveThreshold = Math.max(80, Math.min(180, adaptiveThreshold));
+  }
+  
   switch (enhanceType) {
     case 'grayscale':
       // Pure grayscale (no thresholding) - helps ZXing's internal processing
@@ -349,17 +389,19 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
       break;
     
     case 'contrast':
+      // ⭐ Mobile: Use adaptive threshold instead of fixed 140
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-        const enhanced = gray > 140 ? 255 : 0;
+        const enhanced = gray > adaptiveThreshold ? 255 : 0;
         data[i] = data[i + 1] = data[i + 2] = enhanced;
       }
       break;
       
     case 'binary':
+      // ⭐ Mobile: Use adaptive threshold instead of fixed 128
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-        const binary = gray > 128 ? 255 : 0;
+        const binary = gray > adaptiveThreshold ? 255 : 0;
         data[i] = data[i + 1] = data[i + 2] = binary;
       }
       break;
@@ -378,6 +420,7 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
           const left = data[i - 4];
           const right = data[i + 4];
           
+          // ⭐ Enhanced sharpening kernel for barcode clarity
           const enhanced = Math.max(0, Math.min(255, center * 5 - top - bottom - left - right));
           sharpened[i] = sharpened[i + 1] = sharpened[i + 2] = enhanced;
         }
@@ -386,9 +429,12 @@ function enhanceImage(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, 
       break;
       
     case 'extreme':
+      // ⭐ Mobile: Use adaptive threshold instead of fixed 120
       for (let i = 0; i < data.length; i += 4) {
         const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-        const enhanced = gray > 120 ? 255 : 0;
+        // For extreme mode, use even more aggressive thresholding
+        const threshold = Math.max(100, adaptiveThreshold - 30);
+        const enhanced = gray > threshold ? 255 : 0;
         data[i] = data[i + 1] = data[i + 2] = enhanced;
       }
       break;
@@ -562,7 +608,184 @@ export function stopScan(): void {
   }
 }
 
-// ── Camera preview for photo capture ──
+// ── Helper: Get optimal video constraints for device (S20 FE: prefer 4:3) ──
+// Returns fallback chain: try 4:3 first (sharper barcode), then 16:9 (baseline)
+function getOptimalVideoConstraints(priority: '4:3' | '16:9' = '4:3'): Array<{ video: any; label: string }> {
+  const constraints: Array<{ video: any; label: string }> = [];
+  
+  if (priority === '4:3') {
+    // For S20 FE: 4:3 often yields sharper barcode capture
+    constraints.push({
+      label: '4:3 (S20 FE optimized)',
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1440, min: 1024 },
+        height: { ideal: 1920, min: 768 },
+        aspectRatio: { ideal: 4 / 3 },
+        frameRate: { ideal: 30, max: 60 },
+        autoGainControl: true,
+        noiseSuppression: false,
+        echoCancellation: false,
+      } as any,
+    });
+  }
+  
+  // Fallback: 16:9 baseline (original config)
+  constraints.push({
+    label: '16:9 (baseline)',
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 },
+      frameRate: { ideal: 30, max: 60 },
+      autoGainControl: true,
+      noiseSuppression: false,
+      echoCancellation: false,
+    } as any,
+  });
+  
+  return constraints;
+}
+
+// ── Helper: Apply advanced camera constraints (Samsung S20 FE optimized) ──
+async function applyAdvancedConstraints(track: MediaStreamTrack): Promise<void> {
+  if (!track || !(track as any).getCapabilities) return;
+  
+  const capabilities = (track as any).getCapabilities();
+  const advancedConstraints: any[] = [];
+  
+  // ── Core constraints (always try) ──
+  // Focus mode: Try continuous first, but on mobile might need manual trigger + focus power
+  if (capabilities.focusMode) {
+    if (capabilities.focusMode.includes('continuous')) {
+      advancedConstraints.push({ focusMode: 'continuous' });
+      console.log('[Camera] ✓ focusMode=continuous (barcode detail) [mobile-optimized]');
+    } else if (capabilities.focusMode.includes('auto')) {
+      // Fallback to auto focus if continuous not available
+      advancedConstraints.push({ focusMode: 'auto' });
+      console.log('[Camera] ✓ focusMode=auto (fallback, mobile device)');
+    }
+  }
+  
+  // Focus Power/Distance: For devices that support it, set for close-range barcode detection
+  if (capabilities.focusDistance?.min !== undefined) {
+    // Set focus to near distance (better for barcodes typically 10-30cm away)
+    const minFocusDistance = capabilities.focusDistance.min || 0;
+    const optimalDistance = Math.max(minFocusDistance, 0.1);  // 0.1m ≈ 10cm
+    advancedConstraints.push({ focusDistance: optimalDistance });
+    console.log(`[Camera] ✓ focusDistance=${optimalDistance.toFixed(2)}m (close-range for barcode)`);
+  }
+  
+  if (capabilities.exposureMode?.includes('continuous')) {
+    advancedConstraints.push({ exposureMode: 'continuous' });
+    console.log('[Camera] ✓ exposureMode=continuous (stable brightness)');
+  }
+  
+  if (capabilities.whiteBalanceMode?.includes('continuous')) {
+    advancedConstraints.push({ whiteBalanceMode: 'continuous' });
+    console.log('[Camera] ✓ whiteBalanceMode=continuous');
+  }
+  
+  // ── S20 FE specific: Image quality enhancements ──
+  if (capabilities.sharpness !== undefined) {
+    const maxSharp = capabilities.sharpness.max || 100;
+    advancedConstraints.push({ sharpness: maxSharp });
+    console.log(`[Camera] ✓ sharpness=${maxSharp} (MAX for S20 FE)`);
+  }
+  
+  // Contrast: mid-to-high for barcode detection
+  if (capabilities.contrast !== undefined) {
+    const minContrast = capabilities.contrast.min || 0;
+    const maxContrast = capabilities.contrast.max || 100;
+    const targetContrast = minContrast + (maxContrast - minContrast) * 0.7;
+    advancedConstraints.push({ contrast: Math.round(targetContrast) });
+    console.log(`[Camera] ✓ contrast=${Math.round(targetContrast)} (70% of max)`);
+  }
+  
+  // ISO: keep noise low for barcode clarity
+  if (capabilities.iso !== undefined) {
+    const maxIso = Math.min(capabilities.iso.max || 400, 200);
+    advancedConstraints.push({ iso: maxIso });
+    console.log(`[Camera] ✓ iso=${maxIso} (noise control)`);
+  }
+  
+  // Exposure time: fast shutter for sharp capture
+  if (capabilities.exposureTime !== undefined) {
+    const maxExposure = capabilities.exposureTime.max || 120;
+    const targetExposure = Math.min(maxExposure, 120); // Cap at 120ms for S20 FE
+    advancedConstraints.push({ exposureTime: [targetExposure] });
+    console.log(`[Camera] ✓ exposureTime=${targetExposure}ms (sharp capture)`);
+  }
+  
+  // Zoom: moderate for stability
+  if (capabilities.zoom?.min !== undefined && capabilities.zoom?.max !== undefined) {
+    const maxZoom = Math.min(capabilities.zoom.max, 2.0);
+    advancedConstraints.push({ zoom: maxZoom });
+    console.log(`[Camera] ✓ zoom=${maxZoom}x (stability)`);
+  }
+  
+  // Exposure compensation (conditional): reduce when torch is ON
+  if (torchEnabled && capabilities.exposureCompensation) {
+    const minComp = capabilities.exposureCompensation.min || -3;
+    const targetComp = Math.max(minComp, -0.5);
+    advancedConstraints.push({ exposureCompensation: targetComp });
+    console.log(`[Camera] ✓ exposureCompensation=${targetComp} (torch ON)`);
+  }
+  
+  if (advancedConstraints.length > 0) {
+    try {
+      await (track as any).applyConstraints({ advanced: advancedConstraints });
+    } catch (err: any) {
+      console.log('[Camera] ⚠️ applyConstraints warning:', err.message);
+    }
+  }
+}
+
+// ── Helper: Capture photo via ImageCapture API if available (S20 FE feature) ──
+async function capturePhotoViaImageCapture(track: MediaStreamTrack): Promise<Blob | null> {
+  try {
+    // Check if ImageCapture is supported (Chrome/Android typically have it)
+    if (!('ImageCapture' in window)) {
+      console.log('[Capture] ImageCapture not supported, using fallback canvas');
+      return null;
+    }
+    
+    const imageCapture = new (window as any).ImageCapture(track);
+    console.log('[Capture] 📸 Using ImageCapture.takePhoto() for best quality');
+    
+    const blob = await imageCapture.takePhoto({
+      imageWidth: track.getSettings().width,
+      imageHeight: track.getSettings().height,
+    });
+    
+    console.log(`[Capture] ✓ ImageCapture success: ${blob.size} bytes`);
+    return blob;
+  } catch (err: any) {
+    console.warn('[Capture] ImageCapture failed, falling back to canvas:', err.message);
+    return null;
+  }
+}
+
+// ── Helper: Quality check for stream resolution ──
+function checkStreamQuality(settings: MediaTrackSettings): { ok: boolean; reason: string } {
+  const width = settings.width || 0;
+  const height = settings.height || 0;
+  const longSide = Math.max(width, height);
+  const aspectRatio = Math.min(width, height) / Math.max(width, height);
+  
+  if (longSide < 1280) {
+    return { ok: false, reason: `LongSide ${longSide} < 1280` };
+  }
+  
+  if (aspectRatio < 0.6) {
+    // Very narrow aspect (like 9:16) - might be portrait crop
+    return { ok: true, reason: `Portrait: ${width}×${height} (4:3-ish)` };
+  }
+  
+  return { ok: true, reason: `Landscape: ${width}×${height} (16:9)` };
+}
+
+// ── Camera preview with fallback 4:3 → 16:9 for S20 FE optimization ──
 export function startCameraPreview(
   videoElement: HTMLVideoElement,
   onError: (err: ScannerError, message: string) => void,
@@ -618,20 +841,30 @@ export function startCameraPreview(
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
-      // ── TASK A: Optimized high-res getUserMedia constraints (portrait-first) ──
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1440, min: 1280 },          // Portrait-optimized width
-          height: { ideal: 1920, min: 720 },          // Portrait-optimized height (taller)
-          frameRate: { ideal: 30, max: 60 },          // Locked at 30fps for consistency
-          // Disable blur-inducing features, keep exposure control
-          autoGainControl: true,
-          noiseSuppression: false,
-          echoCancellation: false,
-        } as any,  // Allow advanced constraints on some platforms
-      });
+      // ── PATCH S20 FE: Fallback chain 4:3 → 16:9 for barcode clarity ──
+      const constraintChain = getOptimalVideoConstraints('4:3');
+      let stream: MediaStream | null = null;
+      let selectedConstraint: string = '';
+      
+      for (const constraint of constraintChain) {
+        try {
+          console.log(`[Camera] Trying constraint: ${constraint.label}`);
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: constraint.video,
+          });
+          selectedConstraint = constraint.label;
+          console.log(`[Camera] ✓ Acquired stream: ${selectedConstraint}`);
+          break;
+        } catch (err: any) {
+          console.log(`[Camera] ✗ ${constraint.label} failed: ${err.message}`);
+          // Try next constraint
+        }
+      }
+      
+      if (!stream) {
+        throw new Error('All constraint attempts failed');
+      }
       
       // Check actual stream resolution
       const videoTrack = stream.getVideoTracks()[0];
@@ -645,23 +878,25 @@ export function startCameraPreview(
       const streamWidth = streamSettings.width || 0;
       const streamHeight = streamSettings.height || 0;
       const streamFps = streamSettings.frameRate || 0;
+      const streamAspect = (streamWidth / streamHeight).toFixed(2);
       
-      // TASK A: Check resolution by long side (handle portrait/landscape)
+      // Quality check
+      const qualityCheck = checkStreamQuality(streamSettings);
       const longSide = Math.max(streamWidth, streamHeight);
       const shortSide = Math.min(streamWidth, streamHeight);
       const isPortrait = streamHeight > streamWidth;
-      const okRes = longSide >= 1280;
       
-      console.log(`[Camera] Stream acquired: ${streamWidth}×${streamHeight} @ ${streamFps.toFixed(1)}fps`);
-      console.log(`[Camera] track.getSettings():`, streamSettings);
+      console.log(`[Camera] Stream acquired: ${streamWidth}×${streamHeight} @ ${streamFps.toFixed(1)}fps (aspect=${streamAspect})`);
+      console.log(`[Camera] Constraint: ${selectedConstraint}`);
+      console.log(`[Camera] Quality: ${qualityCheck.reason}`);
       console.log(`[Camera] Portrait: ${isPortrait}, LongSide: ${longSide}, ShortSide: ${shortSide}`);
-      console.log(`[Camera] Resolution check: longSide(${longSide}) >= 1280 => ${okRes}`);
+      console.log(`[Camera] track.getSettings():`, streamSettings);
       
-      if (longSide < 1280) {
-        console.warn(`[Camera] ⚠️ LOW RES: longSide=${longSide} < 1280. Consider alternative constraints...`);
+      if (!qualityCheck.ok) {
+        console.warn(`[Camera] ⚠️ Stream quality issue: ${qualityCheck.reason}`);
       }
       
-      // Double-check video element is still available (user might have closed camera)
+      // Double-check video element is still available
       if (!videoElement) {
         stream.getTracks().forEach(t => t.stop());
         return;
@@ -670,21 +905,21 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // ── TASK E: Configure video element WITHOUT blur-inducing styles ──
+      // ── TASK E: Configure video element for S20 FE barcode clarity ──
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('disablepictureinpicture', 'true');
-      // Use 'contain' (not 'cover') to preserve full barcode region without cropping
+      // CRITICAL: objectFit contain (not cover) for barcode clarity
       (videoElement as any).style.backfaceVisibility = 'hidden';
       (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
-      (videoElement as any).style.filter = 'none';                    // No CSS filters
-      (videoElement as any).style.objectFit = 'contain';              // Show entire frame
+      (videoElement as any).style.filter = 'none';
+      (videoElement as any).style.objectFit = 'contain';              // S20 FE: contain for clarity
       (videoElement as any).style.objectPosition = 'center';
       (videoElement as any).style.WebkitFontSmoothing = 'antialiased';
       (videoElement as any).style.textRendering = 'geometricPrecision';
       (videoElement as any).style.lineHeight = '0';
       (videoElement as any).style.fontSize = '0';
       
-      // ── TASK C: Wait for video to be truly ready (not 9 seconds) ──
+      // ── TASK C: Wait for video to be truly ready ──
       try {
         await videoElement.play();
       } catch (playError: any) {
@@ -697,7 +932,7 @@ export function startCameraPreview(
         }
       }
       
-      // Wait for video bytes to start flowing + resolution to be known
+      // Wait for video bytes to start flowing
       const maxRetries = 30;
       let retries = 0;
       while (retries < maxRetries && (videoElement.readyState < 2 || videoElement.videoWidth === 0)) {
@@ -713,85 +948,16 @@ export function startCameraPreview(
       const vh = videoElement.videoHeight;
       const vLong = Math.max(vw, vh);
       const vOk = vLong >= 1280;
-      console.log(`[Camera] Video ready: ${vw}×${vh}`);
-      console.log(`[Camera] Video longSide: ${vLong}, OK: ${vOk}`);
+      console.log(`[Camera] Video ready: ${vw}×${vh} (longSide=${vLong})`);
+      console.log(`[Camera] Video quality OK: ${vOk}`);
       
-      // ── TASK B: Apply focus/exposure/zoom constraints IMMEDIATELY (not after 9s) ──
-      try {
-        const trackForConstraints = stream.getVideoTracks()[0];
-        if (trackForConstraints && (trackForConstraints as any).getCapabilities) {
-          const capabilities = (trackForConstraints as any).getCapabilities();
-          const advancedConstraints: any[] = [];
-          
-          // Continuous focus for barcode detail - MANDATORY for sharp text
-          if (capabilities.focusMode?.includes('continuous')) {
-            advancedConstraints.push({ focusMode: 'continuous' });
-            console.log('[Camera] ✓ focusMode=continuous (barcode detail)');
-          }
-          
-          // Continuous exposure for stable brightness
-          if (capabilities.exposureMode?.includes('continuous')) {
-            advancedConstraints.push({ exposureMode: 'continuous' });
-            console.log('[Camera] ✓ exposureMode=continuous (stable brightness)');
-          }
-          
-          // Continuous white balance for accurate colors
-          if (capabilities.whiteBalanceMode?.includes('continuous')) {
-            advancedConstraints.push({ whiteBalanceMode: 'continuous' });
-            console.log('[Camera] ✓ whiteBalanceMode=continuous');
-          }
-          
-          // Sharpness: maximize for barcode contrast
-          if (capabilities.sharpness !== undefined) {
-            advancedConstraints.push({ sharpness: capabilities.sharpness.max || 100 });
-            console.log(`[Camera] ✓ sharpness=${capabilities.sharpness.max || 100} (MAX)`);
-          }
-          
-          // Contrast: medium-high for barcode visibility
-          if (capabilities.contrast !== undefined) {
-            const targetContrast = Math.min(
-              capabilities.contrast.max || 100,
-              (capabilities.contrast.max || 100) * 0.75
-            );
-            advancedConstraints.push({ contrast: targetContrast });
-            console.log(`[Camera] ✓ contrast=${Math.round(targetContrast)} (medium-high)`);
-          }
-          
-          // ISO: low noise (<=200) for barcode reading
-          if (capabilities.iso !== undefined) {
-            const targetIso = Math.max(capabilities.iso.min || 100, 200);
-            advancedConstraints.push({ iso: targetIso });
-            console.log(`[Camera] ✓ iso=${targetIso} (noise control)`);
-          }
-          
-          // Exposure time: ~150ms for sharp capture
-          if (capabilities.exposureTime !== undefined) {
-            const targetExposure = capabilities.exposureTime.max || 150;
-            advancedConstraints.push({ exposureTime: [Math.min(targetExposure, 150)] });
-            console.log(`[Camera] ✓ exposureTime~150ms (sharp capture)`);
-          }
-          
-          // Moderate zoom if supported (not 5x - avoid blur/shake on webview)
-          if (capabilities.zoom?.min !== undefined && capabilities.zoom?.max !== undefined) {
-            const maxZoom = Math.min(capabilities.zoom.max, 2.0); // Cap at 2x for stability
-            advancedConstraints.push({ zoom: maxZoom });
-            console.log(`[Camera] ✓ zoom=${maxZoom}x (capped for stability)`);
-          }
-          
-          if (advancedConstraints.length > 0) {
-            await (trackForConstraints as any).applyConstraints({
-              advanced: advancedConstraints
-            }).catch((err: any) => {
-              console.log('[Camera] ⚠️ applyConstraints warning:', err.message);
-            });
-          }
-        }
-      } catch (err) {
-        console.log('[Camera] Could not apply constraints:', err);
-      }
+      // ── TASK B: Apply advanced constraints IMMEDIATELY (S20 FE optimized) ──
+      await applyAdvancedConstraints(videoTrack);
       
-      // Wait 900ms for autofocus + exposure to settle on Zalo webview
-      await new Promise(resolve => setTimeout(resolve, 900));
+      // ⭐ Mobile optimization: Extend focus settling to 2500ms for maximum autofocus stability
+      // Mobile devices need more time to properly lock focus, especially with barcode close-up
+      // 1500ms was still too short for many devices
+      await new Promise(resolve => setTimeout(resolve, 2500));
       
       (videoElement as any).dataset.focusLocked = 'true';
       console.log('[Camera] ✅ Focus/Exposure settled - Ready for capture');
@@ -884,9 +1050,13 @@ export function getTorchState(): boolean {
 export function startAutoScanFromStream(
   videoElement: HTMLVideoElement,
   onResult: (barcode: string) => void,
-  options?: { intervalMs?: number },
+  options?: { 
+    intervalMs?: number;
+    onBarcodeDetected?: (canvas: HTMLCanvasElement, barcode: string) => void;
+  },
 ): () => void {
   const interval = options?.intervalMs ?? 350; // scan every 350ms for responsiveness
+  const onBarcodeDetected = options?.onBarcodeDetected;
   let stopped = false;
   let timerId: ReturnType<typeof setInterval> | null = null;
   let lastDetected = '';
@@ -894,17 +1064,21 @@ export function startAutoScanFromStream(
   let scanIndex = 0; // rotate through strategies each frame
 
   // Define crop regions: (sx%, sy%, sw%, sh%) relative to video dimensions
-  // We focus on the center area where the user aims the barcode
+  // ⭐ Mobile optimization: Expanded regions to cover more of frame
+  // Include edges since barcode might not always be perfectly centered
   const cropRegions = [
-    { sx: 0.10, sy: 0.20, sw: 0.80, sh: 0.60, label: 'center-wide' },      // wide center
-    { sx: 0.05, sy: 0.30, sw: 0.90, sh: 0.40, label: 'center-strip' },      // horizontal strip
-    { sx: 0.15, sy: 0.25, sw: 0.70, sh: 0.50, label: 'center-box' },        // center box
-    { sx: 0.00, sy: 0.00, sw: 1.00, sh: 1.00, label: 'full-frame' },        // full frame fallback
-    { sx: 0.20, sy: 0.35, sw: 0.60, sh: 0.30, label: 'center-narrow' },     // narrow center
+    { sx: 0.05, sy: 0.15, sw: 0.90, sh: 0.70, label: 'full-wide' },        // ⭐ NEW: wider coverage
+    { sx: 0.10, sy: 0.20, sw: 0.80, sh: 0.60, label: 'center-wide' },      // Center wide
+    { sx: 0.05, sy: 0.25, sw: 0.90, sh: 0.50, label: 'center-strip' },     // Horizontal strip
+    { sx: 0.15, sy: 0.25, sw: 0.70, sh: 0.50, label: 'center-box' },       // Center box
+    { sx: 0.00, sy: 0.10, sw: 1.00, sh: 0.80, label: 'full-frame' },       // ⭐ NEW: almost full frame
+    { sx: 0.20, sy: 0.30, sw: 0.60, sh: 0.40, label: 'center-narrow' },    // Narrow center
+    { sx: 0.00, sy: 0.00, sw: 1.00, sh: 1.00, label: 'complete-frame' },   // ⭐ NEW: absolute full frame
   ];
 
   // Enhancement modes to rotate through
-  const enhancements = ['none', 'contrast', 'grayscale', 'binary'];
+  // ⭐ Mobile: More modes for better coverage, order optimized for mobile
+  const enhancements = ['none', 'grayscale', 'contrast', 'sharpen', 'binary', 'extreme'];
 
   const tryDecode = async (canvas: HTMLCanvasElement): Promise<string | null> => {
     const readers = [createMultiReader(), createReader()];
@@ -945,10 +1119,15 @@ export function startAutoScanFromStream(
       const sw = Math.floor(vw * crop.sw);
       const sh = Math.floor(vh * crop.sh);
 
-      // Create canvas at 2x size for better small barcode detection
-      const upscale = 2.0;
+      // ⭐ Mobile optimization: Adaptive upscaling based on crop size
+      // Small crop → higher upscale; Large crop → lower upscale
+      // This maintains barcode detection accuracy on all device sizes
+      let upscale = 1.8;
+      if (sw > 400) upscale = 1.5;  // Already large crop, less upscale needed
+      if (sw > 600) upscale = 1.2;  // Full width crop, minimal upscale
+      
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
       if (!ctx) return;
 
       canvas.width = Math.floor(sw * upscale);
@@ -968,6 +1147,13 @@ export function startAutoScanFromStream(
           lastDetected = text;
           lastDetectedTime = now;
           console.log(`🎯 Auto-scan [${crop.label}+${enhance}]:`, text);
+          
+          // ⭐ FREEZE DETECTION CANVAS: Capture at detection moment, not later
+          if (onBarcodeDetected) {
+            console.log(`[AutoScan] 📸 Freezing ROI canvas at detection time (${canvas.width}×${canvas.height})`);
+            onBarcodeDetected(canvas, text);
+          }
+          
           onResult(text);
         }
       }
@@ -976,10 +1162,13 @@ export function startAutoScanFromStream(
     }
   };
 
-  // Start periodic scanning
-  timerId = setInterval(scanFrame, interval);
-  // First scan after video is ready
-  setTimeout(scanFrame, 400);
+  // ⭐ Mobile optimization: Faster scan interval with new algorithm improvements
+  // Original 350ms was aggressive, then 600ms was too slow
+  // Back to 400ms now with better image processing (adaptive thresholding)
+  const mobileInterval = Math.max(interval, 400);
+  timerId = setInterval(scanFrame, mobileInterval);
+  // First scan after focus settles
+  setTimeout(scanFrame, 1000);
 
   const cleanup = () => {
     stopped = true;

@@ -10,6 +10,7 @@ import {
   startScan,
   stopScan,
   startCameraPreview,
+  startAutoScanFromStream,
   captureAndDecode,
   decodeFromImageFile,
   decodeFromCroppedPhoto,
@@ -157,6 +158,27 @@ function BarcodeManagePage() {
     fetchBarcodes();
   }, [fetchBarcodes]);
 
+  // ── FREEZE DETECTION CANVAS: Auto-capture when barcode detected ──
+  const freezeDetectionCanvas = useCallback((canvas: HTMLCanvasElement, barcode: string) => {
+    console.log(`[AutoCapture] 🎯 Barcode detected: ${barcode}, freezing ROI canvas (${canvas.width}×${canvas.height})`);
+    
+    // Convert detected canvas to blob immediately (no delay)
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          const blobUrl = URL.createObjectURL(blob);
+          console.log(`[AutoCapture] ✅ Canvas frozen to blob: ${blob.size} bytes, URL: ${blobUrl.substring(0, 50)}...`);
+          setCapturedPhoto(blobUrl);
+          setScanState('captured');
+        } else {
+          console.warn('[AutoCapture] ❌ toBlob returned null');
+        }
+      },
+      'image/jpeg',
+      0.95
+    );
+  }, []);
+
   // ── Start camera scanning ──
   const handleStartScan = () => {
     setScannedBarcode('');
@@ -190,12 +212,39 @@ function BarcodeManagePage() {
 
       cleanupRef.current = cleanup;
 
-      // Wait ~2 seconds AFTER startCameraPreview completes (which includes 700ms settle time)
-      // This gives focus/exposure final stabilization before enabling capture
+      // ⭐ Mobile optimization: Extended delay for maximum camera stabilization
+      // New timeline: 2500ms camera settle + 2000ms extra = 4500ms total (4.5s)
+      // Ensures autofocus is fully locked and exposure is stable before detection
       setTimeout(() => {
+        if (!videoRef.current) {
+          console.error('[Scan] Video element lost');
+          return;
+        }
+        
+        console.log('[Scan] Starting auto-scan with detection canvas freezing...');
+        
+        // Start automatic barcode detection from video stream
+        // When barcode is detected, onBarcodeDetected callback freezes the ROI canvas
+        const autoScanCleanup = startAutoScanFromStream(
+          videoRef.current,
+          (barcode) => {
+            console.log(`[Scan] Barcode result callback: ${barcode}`);
+          },
+          {
+            intervalMs: 400,  // ⭐ Mobile: 400ms interval (better than 600ms, improved algo)
+            onBarcodeDetected: freezeDetectionCanvas,
+          }
+        );
+        
+        // Store cleanup for later
+        cleanupRef.current = () => {
+          autoScanCleanup();
+          cleanup();
+        };
+        
         setFocusLocked(true);
-        console.log('[Scan] Camera ready for capture (focus settled)');
-      }, 2000);
+        console.log('[Scan] Auto-scan initialized, waiting for barcode detection...');
+      }, 4500);  // ⭐ Extended: 2500ms camera settle + 2000ms = 4.5s total
     }, 100);
   };
 
@@ -231,7 +280,7 @@ function BarcodeManagePage() {
     }
   };
 
-  // ── TASK D: Capture photo - full resolution, no blur ──
+  // ── TASK D: Capture photo - prefer ImageCapture, fallback canvas (S20 FE optimized) ──
   const handleCapturePhoto = async () => {
     if (!videoRef.current) {
       setScanState('error');
@@ -250,7 +299,7 @@ function BarcodeManagePage() {
       const capOk = capLong >= 1280;
       console.log(`[Capture] LongSide: ${capLong}, OK: ${capOk}`);
       
-      // Log track settings if available
+      // Log track settings
       try {
         const track = video.srcObject instanceof MediaStream ? 
           video.srcObject.getVideoTracks()[0] : null;
@@ -264,74 +313,105 @@ function BarcodeManagePage() {
         console.log('[Capture] Could not get track settings:', e);
       }
       
-      // Step 1: Capture FULL video frame at native resolution (no upscale, no blur)
-      const fullCanvas = document.createElement('canvas');
-      const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
-      if (!fullCtx) throw new Error('Cannot create full canvas context');
+      // ── Try ImageCapture API first (S20 FE native feature) ──
+      let capturedBlob: Blob | null = null;
       
-      fullCanvas.width = vw;
-      fullCanvas.height = vh;
-      fullCtx.imageSmoothingEnabled = false;  // CRITICAL: TẮT SMOOTHING
-      fullCtx.imageSmoothingQuality = 'low';
-      fullCtx.filter = 'none';
-      fullCtx.globalCompositeOperation = 'source-over';
-      fullCtx.drawImage(video, 0, 0, vw, vh);
-      console.log(`[Capture] Full canvas: ${fullCanvas.width}×${fullCanvas.height} (imageSmoothingEnabled=${fullCtx.imageSmoothingEnabled}`);
-      
-      // Step 2: Crop from full frame (no scaling, exact crop region)
-      const sourceCrop = computeSourceCropRectFromDom(video, cropFrameRef.current);
-      if (!sourceCrop) {
-        throw new Error('Cannot compute crop rect from DOM');
+      try {
+        if ('ImageCapture' in window && video.srcObject instanceof MediaStream) {
+          const track = video.srcObject.getVideoTracks()[0];
+          if (track) {
+            const imageCapture = new (window as any).ImageCapture(track);
+            console.log('[Capture] 📸 Trying ImageCapture.takePhoto()...');
+            
+            capturedBlob = await imageCapture.takePhoto().catch((err: any) => {
+              console.warn('[Capture] ImageCapture.takePhoto() failed:', err.message);
+              return null;
+            });
+            
+            if (capturedBlob) {
+              console.log(`[Capture] ✓ ImageCapture success: ${capturedBlob.size} bytes`);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Capture] ImageCapture not available or failed:', err);
       }
       
-      const cropCanvas = document.createElement('canvas');
-      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
-      if (!cropCtx) throw new Error('Cannot create crop canvas context');
+      // ── Fallback: canvas capture if ImageCapture failed ──
+      if (!capturedBlob) {
+        console.log('[Capture] Falling back to canvas capture...');
+        
+        // Step 1: Capture full video frame at native resolution
+        const fullCanvas = document.createElement('canvas');
+        const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+        if (!fullCtx) throw new Error('Cannot create full canvas context');
+        
+        fullCanvas.width = vw;
+        fullCanvas.height = vh;
+        fullCtx.imageSmoothingEnabled = false;  // CRITICAL: TẮT SMOOTHING
+        fullCtx.imageSmoothingQuality = 'low';
+        fullCtx.filter = 'none';
+        fullCtx.globalCompositeOperation = 'source-over';
+        fullCtx.drawImage(video, 0, 0, vw, vh);
+        console.log(`[Capture] Full canvas: ${fullCanvas.width}×${fullCanvas.height} (no smoothing)`);
+        
+        // Step 2: Crop from full frame
+        const sourceCrop = computeSourceCropRectFromDom(video, cropFrameRef.current);
+        if (!sourceCrop) {
+          throw new Error('Cannot compute crop rect from DOM');
+        }
+        
+        const cropCanvas = document.createElement('canvas');
+        const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+        if (!cropCtx) throw new Error('Cannot create crop canvas context');
+        
+        const cropW = Math.round(sourceCrop.width);
+        const cropH = Math.round(sourceCrop.height);
+        cropCanvas.width = cropW;
+        cropCanvas.height = cropH;
+        cropCtx.imageSmoothingEnabled = false;
+        cropCtx.imageSmoothingQuality = 'low';
+        cropCtx.filter = 'none';
+        cropCtx.globalCompositeOperation = 'source-over';
+        
+        cropCtx.drawImage(
+          fullCanvas,
+          sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
+          0, 0, cropW, cropH
+        );
+        
+        console.log(`[Capture] Cropped: ${cropW}×${cropH} from full`);
+        console.log(`[Capture] Source crop: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`);
+        
+        // Step 3: Convert to blob
+        await new Promise<void>((resolve, reject) => {
+          cropCanvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('toBlob returned null'));
+              } else {
+                capturedBlob = blob;
+                console.log(`[Capture] ✓ Canvas blob: ${blob.size} bytes (quality 0.95)`);
+                resolve();
+              }
+            },
+            'image/jpeg',
+            0.95
+          );
+        });
+      }
       
-      const cropW = Math.round(sourceCrop.width);
-      const cropH = Math.round(sourceCrop.height);
-      cropCanvas.width = cropW;
-      cropCanvas.height = cropH;
-      cropCtx.imageSmoothingEnabled = false;  // TẮT HẾT SMOOTHING
-      cropCtx.imageSmoothingQuality = 'low';
-      cropCtx.filter = 'none';
-      cropCtx.globalCompositeOperation = 'source-over';
+      // ── Use captured blob ──
+      if (!capturedBlob) {
+        throw new Error('Failed to capture blob from any method');
+      }
       
-      // TASK C: Copy từ fullCanvas (exact 1:1, NO resize/blur)
-      // sourceCrop đã là pixel tuyệt đối từ video source
-      cropCtx.drawImage(
-        fullCanvas,
-        sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
-        0, 0, cropW, cropH
-      );
+      const blobUrl = URL.createObjectURL(capturedBlob);
+      setCapturedPhoto(blobUrl);
+      setScanState('captured');
+      console.log(`[Capture] ✅ Blob URL: ${blobUrl.substring(0, 50)}...`);
+      console.log(`[Capture] ✅ Capture complete (${capLong >= 1280 ? 'HIGH_RES' : 'LOW_RES'})`);
       
-      console.log(`[Capture] Step 2: Cropped from full`);
-      console.log(`[Capture] Source crop: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`);
-      console.log(`[Capture] Output crop canvas: ${cropW}×${cropH}`);
-      console.log(`[Capture] Crop width >= 600px: ${cropW >= 600}`);
-      
-      // TASK D: Convert to JPEG blob for better quality than dataURL
-      cropCanvas.toBlob(
-        (blob) => {
-          try {
-            if (!blob) {
-              throw new Error('toBlob returned null');
-            }
-            const blobUrl = URL.createObjectURL(blob);
-            setCapturedPhoto(blobUrl);
-            setScanState('captured');
-            console.log(`[Capture] ✅ Blob URL: ${blobUrl.substring(0, 50)}...`);
-            console.log(`[Capture] ✅ Captured ${cropW}×${cropH} crop (no smoothing, exact copy from full frame)`);
-          } catch (err) {
-            console.error('toBlob error:', err);
-            setScanState('error');
-            setErrorType('UNKNOWN');
-            setErrorMessage('Lỗi khi xử lý ảnh. Vui lòng thử lại.');
-          }
-        },
-        'image/jpeg',
-        0.95
-      );
     } catch (err) {
       console.error('Capture error:', err);
       setScanState('error');
@@ -584,13 +664,18 @@ function BarcodeManagePage() {
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'contain',                    // Show full frame without cropping
+                    objectFit: 'cover',                      // ⭐ Changed from contain → cover (better for mobile)
                     objectPosition: 'center',
                     backgroundColor: '#000',
+                    display: 'block',                        // Remove inline spacing
+                    transform: 'translate3d(0, 0, 0)',       // ⭐ GPU acceleration
                     WebkitBackfaceVisibility: 'hidden' as any,
                     backfaceVisibility: 'hidden' as any,
                     WebkitFontSmoothing: 'antialiased' as any,
+                    WebkitTransform: 'translate3d(0, 0, 0)' as any,  // ⭐ GPU fix for iOS
                     textRendering: 'geometricPrecision' as any,
+                    imageRendering: 'crisp-edges' as any,    // ⭐ Sharp edges for barcode
+                    WebkitUserSelect: 'none' as any,         // Prevent selection
                   }}
                 />
                 
@@ -660,7 +745,7 @@ function BarcodeManagePage() {
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-500">
-                Đưa barcode vào khung xanh và chụp ảnh
+                ⭐ Đưa barcode vào khung xanh - Tự động chụp khi phát hiện
               </Text>
               <Box className="flex gap-2">
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
@@ -675,13 +760,14 @@ function BarcodeManagePage() {
                   {torchOn ? '💡 Tắt' : '💡 Bật'}
                 </Button>
                 <Button 
-                  variant="primary" 
+                  variant="secondary"
                   onClick={handleCapturePhoto}
                   disabled={!focusLocked}
                   className="flex-1"
-                  style={{ opacity: focusLocked ? 1 : 0.5 }}
+                  title="Manual capture (fallback nếu auto-detect không thành công)"
+                  style={{ opacity: focusLocked ? 0.7 : 0.4 }}
                 >
-                  📷 {focusLocked ? 'Chụp' : 'Đợi focus...'}
+                  📷 {focusLocked ? 'Chụp (manual)' : 'Đợi focus...'}
                 </Button>
               </Box>
             </Box>
