@@ -718,8 +718,10 @@ export function startCameraPreview(
       console.log(`[Camera] Video longSide: ${vLong}, OK: ${vOk}`);
       
       // ── TASK B: Apply focus/exposure/zoom constraints IMMEDIATELY (not after 9s) ──
+      let trackForOuterScope: MediaStreamTrack | null = null;
       try {
         const trackForConstraints = stream.getVideoTracks()[0];
+        trackForOuterScope = trackForConstraints;
         if (trackForConstraints && (trackForConstraints as any).getCapabilities) {
           const capabilities = (trackForConstraints as any).getCapabilities();
           const advancedConstraints: any[] = [];
@@ -743,6 +745,12 @@ export function startCameraPreview(
             console.log(`[Camera] ✓ Applied: zoom=${maxZoom}x`);
           }
           
+          // Try to enable torch (flashlight) to reduce motion blur
+          if (capabilities.torch) {
+            advancedConstraints.push({ torch: true });
+            console.log('[Camera] ✓ Applied: torch=true (reduces motion blur)');
+          }
+          
           if (advancedConstraints.length > 0) {
             await (trackForConstraints as any).applyConstraints({
               advanced: advancedConstraints
@@ -760,6 +768,9 @@ export function startCameraPreview(
       
       (videoElement as any).dataset.focusLocked = 'true';
       console.log('[Camera] ✅ Focus/Exposure settled - Ready for capture');
+      
+      // Store stream + track in global state for later reference
+      (window as any).__NATRI_CAMERA_STATE__ = { stream, track: trackForOuterScope };
     } catch (error: any) {
       console.error('[Camera] Preview error:', error);
       currentPreviewStream = null;
@@ -1042,6 +1053,76 @@ export async function capturePhotoWithImageCapture(
   }
 }
 
+// ── Compute sharpness score using Laplacian variance (higher = sharper) ──
+export function computeSharpnessScore(canvas: HTMLCanvasElement): number {
+  try {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return 0;
+
+    // Get image data
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+
+    // Convert to grayscale (using luminosity formula)
+    const gray = new Uint8Array(width * height);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      gray[i / 4] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    }
+
+    // Apply Laplacian kernel: [[0,1,0], [1,-4,1], [0,1,0]]
+    // Laplacian highlights edges; high variance of Laplacian = sharp image
+    const laplacian = new Float32Array(width * height);
+    let minLap = Infinity,
+      maxLap = -Infinity;
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const idx = y * width + x;
+        const val =
+          -4 * gray[idx] +
+          gray[idx - 1] +
+          gray[idx + 1] +
+          gray[idx - width] +
+          gray[idx + width];
+        laplacian[idx] = val;
+        minLap = Math.min(minLap, val);
+        maxLap = Math.max(maxLap, val);
+      }
+    }
+
+    // Normalize Laplacian to [0, 255]
+    const range = maxLap - minLap || 1;
+    const normalized = new Uint8Array(laplacian.length);
+    for (let i = 0; i < laplacian.length; i++) {
+      normalized[i] = Math.round(((laplacian[i] - minLap) / range) * 255);
+    }
+
+    // Compute variance of Laplacian
+    let sum = 0,
+      sumSq = 0,
+      count = 0;
+    for (let i = 0; i < normalized.length; i++) {
+      sum += normalized[i];
+      sumSq += normalized[i] * normalized[i];
+      count++;
+    }
+
+    const mean = sum / count;
+    const variance = sumSq / count - mean * mean;
+    const sharpness = Math.max(0, Math.sqrt(variance)); // 0-127.5 typical range
+
+    return sharpness;
+  } catch (err) {
+    console.error('[Sharpness] Error computing score:', err);
+    return 0;
+  }
+}
+
 // ── Crop blob using DOM rect mapping (0-indexed pixel coordinates) ──
 export async function cropBlobWithDOM(
   blob: Blob,
@@ -1142,7 +1223,183 @@ export async function cropBlobWithDOM(
   }
 }
 
-// ── Decode cropped barcode using BarcodeDetector (native) or ZXing (fallback) ──
+// ── Burst capture with ImageCapture: take N photos and pick sharpest ──
+export async function burstCaptureWithImageCapture(
+  stream: MediaStream,
+  burstCount: number = 3,
+  delayMs: number = 120
+): Promise<{
+  blob: Blob;
+  sharpnessScore: number;
+  bestIndex: number;
+  allScores: number[];
+  debugInfo: string;
+}> {
+  try {
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error('No video track in stream');
+
+    if (typeof (window as any).ImageCapture === 'undefined') {
+      throw new Error('ImageCapture not supported');
+    }
+
+    const imageCapture = new ((window as any).ImageCapture)(track);
+    console.log(`[Burst] 📸 Starting burst capture: ${burstCount} photos, ${delayMs}ms apart`);
+
+    const captures: { blob: Blob; score: number }[] = [];
+    const allScores: number[] = [];
+
+    for (let i = 0; i < burstCount; i++) {
+      try {
+        const blob = await imageCapture.takePhoto({
+          fillLightMode: 'auto',
+        });
+
+        // Create temporary image to get sharpness score
+        const bitmap = await createImageBitmap(blob);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = bitmap.width;
+        tempCanvas.height = bitmap.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) throw new Error('Cannot create temp canvas');
+        tempCtx.drawImage(bitmap, 0, 0);
+
+        const score = computeSharpnessScore(tempCanvas);
+        captures.push({ blob, score });
+        allScores.push(score);
+
+        console.log(`[Burst] 📷 Frame ${i + 1}/${burstCount}: sharpness=${score.toFixed(2)}`);
+
+        // Wait before next capture (except last frame)
+        if (i < burstCount - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      } catch (err) {
+        console.warn(`[Burst] Frame ${i + 1} failed:`, err);
+        if (i === 0) throw err; // If first frame fails, abort burst
+      }
+    }
+
+    if (captures.length === 0) {
+      throw new Error('No frames captured in burst');
+    }
+
+    // Find sharpest frame
+    let bestIndex = 0;
+    let bestScore = captures[0].score;
+    for (let i = 1; i < captures.length; i++) {
+      if (captures[i].score > bestScore) {
+        bestScore = captures[i].score;
+        bestIndex = i;
+      }
+    }
+
+    console.log(
+      `[Burst] ✅ Best frame: index=${bestIndex}, sharpness=${bestScore.toFixed(2)}, count=${captures.length}`
+    );
+
+    return {
+      blob: captures[bestIndex].blob,
+      sharpnessScore: bestScore,
+      bestIndex,
+      allScores,
+      debugInfo: `Burst ${captures.length}fps: best=${bestScore.toFixed(1)}`,
+    };
+  } catch (err) {
+    console.error('[Burst] Error:', err);
+    throw err;
+  }
+}
+
+// ── Fallback burst capture from video element (canvas-based) ──
+export async function burstCaptureFromVideo(
+  videoElement: HTMLVideoElement,
+  burstCount: number = 3,
+  delayMs: number = 150
+): Promise<{
+  blob: Blob;
+  sharpnessScore: number;
+  bestIndex: number;
+  allScores: number[];
+  debugInfo: string;
+}> {
+  try {
+    console.log(`[BurstVideo] 🎬 Starting canvas burst: ${burstCount} frames, ${delayMs}ms apart`);
+
+    const vw = videoElement.videoWidth;
+    const vh = videoElement.videoHeight;
+    if (vw === 0 || vh === 0) throw new Error('Video dimensions invalid');
+
+    const captures: { canvas: HTMLCanvasElement; score: number }[] = [];
+    const allScores: number[] = [];
+
+    for (let i = 0; i < burstCount; i++) {
+      // Capture full video frame
+      const fullCanvas = document.createElement('canvas');
+      const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+      if (!fullCtx) throw new Error('Cannot create canvas');
+
+      fullCanvas.width = vw;
+      fullCanvas.height = vh;
+      fullCtx.imageSmoothingEnabled = false;
+      fullCtx.filter = 'none';
+      fullCtx.drawImage(videoElement, 0, 0, vw, vh);
+
+      // Compute sharpness on full frame
+      const score = computeSharpnessScore(fullCanvas);
+      captures.push({ canvas: fullCanvas, score });
+      allScores.push(score);
+
+      console.log(`[BurstVideo] 🎬 Frame ${i + 1}/${burstCount}: sharpness=${score.toFixed(2)}`);
+
+      if (i < burstCount - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    if (captures.length === 0) throw new Error('No frames captured');
+
+    // Find sharpest
+    let bestIndex = 0;
+    let bestScore = captures[0].score;
+    for (let i = 1; i < captures.length; i++) {
+      if (captures[i].score > bestScore) {
+        bestScore = captures[i].score;
+        bestIndex = i;
+      }
+    }
+
+    // Convert best canvas to blob
+    const bestCanvas = captures[bestIndex].canvas;
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      bestCanvas.toBlob(
+        (b: Blob | null) => {
+          if (b) resolve(b);
+          else reject(new Error('toBlob failed'));
+        },
+        'image/jpeg',
+        0.95
+      );
+    });
+
+    console.log(
+      `[BurstVideo] ✅ Best frame: index=${bestIndex}, sharpness=${bestScore.toFixed(2)}`
+    );
+
+    return {
+      blob,
+      sharpnessScore: bestScore,
+      bestIndex,
+      allScores,
+      debugInfo: `Canvas burst ${captures.length}fps: best=${bestScore.toFixed(1)}`,
+    };
+  } catch (err) {
+    console.error('[BurstVideo] Error:', err);
+    throw err;
+  }
+}
+
+// ── Decode cropped barcode using BarcodeDetector (native) then ZXing 1D (fallback) ──
 export async function decodeCroppedBarcode(
   input: Blob | HTMLCanvasElement | HTMLImageElement
 ): Promise<{
