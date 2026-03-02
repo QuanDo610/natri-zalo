@@ -15,13 +15,9 @@ import {
   decodeFromCroppedPhoto,
   isValidBarcode,
   parseBarcodePrefix,
+  toggleTorch,
+  getTorchState,
   SCANNER_VERSION,
-  capturePhotoWithImageCapture,
-  cropBlobWithDOM,
-  decodeCroppedBarcode,
-  computeSharpnessScore,
-  burstCaptureWithImageCapture,
-  burstCaptureFromVideo,
   type ScannerError,
 } from '@/services/scanner-enhanced';
 import type { ApiError, BarcodeItemInfo } from '@/types';
@@ -101,25 +97,16 @@ function BarcodeManagePage() {
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
   const [focusLocked, setFocusLocked] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);  // ⭐ Torch toggle state
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [inferredProduct, setInferredProduct] = useState<{ sku: string; productName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
-  const [errorType, setErrorType] = useState<ScannerError | 'API' | 'INVALID_FORMAT' | 'LOW_SHARPNESS' | null>(null);
+  const [errorType, setErrorType] = useState<ScannerError | 'API' | 'INVALID_FORMAT' | null>(null);
   const [successMessage, setSuccessMessage] = useState('');
-  const [sharpnessScore, setSharpnessScore] = useState(0);
-  const [sharpnessCheckVisible, setSharpnessCheckVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cropFrameRef = useRef<HTMLDivElement>(null); // ⭐ For DOM-based crop calculation
-  const mediaStreamRef = useRef<MediaStream | null>(null); // ⭐ For ImageCapture + Burst
-  const videoTrackRef = useRef<MediaStreamTrack | null>(null); // ⭐ For ImageCapture + Burst
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
-  const captureInfoRef = useRef<{ method: string; torchSupported: boolean; burstCount: number; scores: number[] }>({
-    method: '',
-    torchSupported: false,
-    burstCount: 0,
-    scores: [],
-  });
 
   // Recent list state
   const [recentBarcodes, setRecentBarcodes] = useState<BarcodeItemInfo[]>([]);
@@ -203,25 +190,6 @@ function BarcodeManagePage() {
 
       cleanupRef.current = cleanup;
 
-      // Capture mediaStream + videoTrack for burst capture + ImageCapture
-      setTimeout(() => {
-        if (videoRef.current?.srcObject instanceof MediaStream) {
-          mediaStreamRef.current = videoRef.current.srcObject;
-          const tracks = videoRef.current.srcObject.getVideoTracks();
-          if (tracks.length > 0) {
-            videoTrackRef.current = tracks[0];
-            
-            // Check torch support
-            const caps = (tracks[0] as any).getCapabilities?.();
-            const torchSupported = caps?.torch ?? false;
-            captureInfoRef.current.torchSupported = torchSupported;
-            
-            console.log('[Capture] 📸 Captured MediaStream and VideoTrack for burst capture');
-            console.log(`[Capture] 🔦 Torch supported: ${torchSupported}`);
-          }
-        }
-      }, 500);
-
       // Wait ~2 seconds AFTER startCameraPreview completes (which includes 700ms settle time)
       // This gives focus/exposure final stabilization before enabling capture
       setTimeout(() => {
@@ -241,6 +209,7 @@ function BarcodeManagePage() {
     setCapturedPhoto(null);
     setUploadedPhoto(null);
     setFocusLocked(false); // ⭐ Reset focus lock
+    setTorchOn(false);     // ⭐ Reset torch toggle
     setScanState('idle');
   };
 
@@ -250,7 +219,19 @@ function BarcodeManagePage() {
     setTimeout(() => handleStartScan(), 200);
   };
 
-  // ── TASK D: Burst capture for max sharpness (ImageCapture burst or Canvas burst fallback) ──
+  // ── Torch toggle: Manual control, not auto-on ──
+  const handleTorchToggle = async () => {
+    const newState = !torchOn;
+    const success = await toggleTorch(newState);
+    if (success) {
+      setTorchOn(newState);
+      console.log(`[Torch] Toggle success: ${newState ? 'ON ✔' : 'OFF ✘'}`);
+    } else {
+      console.warn('[Torch] Toggle failed - device may not support flashlight');
+    }
+  };
+
+  // ── TASK D: Capture photo - full resolution, no blur ──
   const handleCapturePhoto = async () => {
     if (!videoRef.current) {
       setScanState('error');
@@ -259,160 +240,129 @@ function BarcodeManagePage() {
       return;
     }
 
-    setScanningPhoto(true);
-    const BURST_COUNT = 3;
-    const SHARPNESS_THRESHOLD = 80;
-
     try {
-      // Try ImageCapture burst first
-      if (mediaStreamRef.current && videoTrackRef.current) {
-        try {
-          console.log('[Capture] 📸 Attempting burst capture via ImageCapture...');
-          const burstResult = await burstCaptureWithImageCapture(
-            mediaStreamRef.current,
-            BURST_COUNT,
-            120
-          );
-
-          captureInfoRef.current.method = 'ImageCapture';
-          captureInfoRef.current.burstCount = burstResult.allScores.length;
-          captureInfoRef.current.scores = burstResult.allScores;
-
-          console.log(
-            `[Capture] ✅ ImageCapture burst: ${burstResult.allScores.length} frames, scores=[${burstResult.allScores.map((s) => s.toFixed(1)).join(',')}], best=${burstResult.bestIndex}`
-          );
-
-          setSharpnessScore(burstResult.sharpnessScore);
-
-          // Crop the best blob from burst
-          if (cropFrameRef.current) {
-            const { croppedBlob, cropRect } = await cropBlobWithDOM(
-              burstResult.blob,
-              videoRef.current,
-              cropFrameRef.current
-            );
-
-            // Check sharpness threshold
-            if (burstResult.sharpnessScore < SHARPNESS_THRESHOLD) {
-              console.warn(
-                `[Capture] ⚠️ Low sharpness: ${burstResult.sharpnessScore.toFixed(1)} < ${SHARPNESS_THRESHOLD}`
-              );
-              setSharpnessCheckVisible(true);
-              setScanState('error');
-              setErrorType('LOW_SHARPNESS');
-              setErrorMessage(
-                `Ảnh mờ (sharpness: ${burstResult.sharpnessScore.toFixed(1)}/${SHARPNESS_THRESHOLD}). Hãy giữ máy chắc hơn, tiến gần hơn, hoặc bật đèn. Chụp lại?`
-              );
-              setScanningPhoto(false);
-              return;
+      const video = videoRef.current;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      
+      console.log(`[Capture] 📹 Video source: ${vw}×${vh}`);
+      const capLong = Math.max(vw, vh);
+      const capOk = capLong >= 1280;
+      console.log(`[Capture] LongSide: ${capLong}, OK: ${capOk}`);
+      
+      // Log track settings if available
+      try {
+        const track = video.srcObject instanceof MediaStream ? 
+          video.srcObject.getVideoTracks()[0] : null;
+        if (track) {
+          const settings = track.getSettings();
+          const tLong = Math.max(settings.width || 0, settings.height || 0);
+          console.log(`[Capture] track.getSettings():`, settings);
+          console.log(`[Capture] Track LongSide: ${tLong}, OK: ${tLong >= 1280}`);
+        }
+      } catch (e) {
+        console.log('[Capture] Could not get track settings:', e);
+      }
+      
+      // Step 1: Capture FULL video frame at native resolution (no upscale, no blur)
+      const fullCanvas = document.createElement('canvas');
+      const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+      if (!fullCtx) throw new Error('Cannot create full canvas context');
+      
+      fullCanvas.width = vw;
+      fullCanvas.height = vh;
+      fullCtx.imageSmoothingEnabled = false;  // CRITICAL: TẮT SMOOTHING
+      fullCtx.imageSmoothingQuality = 'low';
+      fullCtx.filter = 'none';
+      fullCtx.globalCompositeOperation = 'source-over';
+      fullCtx.drawImage(video, 0, 0, vw, vh);
+      console.log(`[Capture] Full canvas: ${fullCanvas.width}×${fullCanvas.height} (imageSmoothingEnabled=${fullCtx.imageSmoothingEnabled}`);
+      
+      // Step 2: Crop from full frame (no scaling, exact crop region)
+      const sourceCrop = computeSourceCropRectFromDom(video, cropFrameRef.current);
+      if (!sourceCrop) {
+        throw new Error('Cannot compute crop rect from DOM');
+      }
+      
+      const cropCanvas = document.createElement('canvas');
+      const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+      if (!cropCtx) throw new Error('Cannot create crop canvas context');
+      
+      const cropW = Math.round(sourceCrop.width);
+      const cropH = Math.round(sourceCrop.height);
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+      cropCtx.imageSmoothingEnabled = false;  // TẮT HẾT SMOOTHING
+      cropCtx.imageSmoothingQuality = 'low';
+      cropCtx.filter = 'none';
+      cropCtx.globalCompositeOperation = 'source-over';
+      
+      // TASK C: Copy từ fullCanvas (exact 1:1, NO resize/blur)
+      // sourceCrop đã là pixel tuyệt đối từ video source
+      cropCtx.drawImage(
+        fullCanvas,
+        sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
+        0, 0, cropW, cropH
+      );
+      
+      console.log(`[Capture] Step 2: Cropped from full`);
+      console.log(`[Capture] Source crop: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`);
+      console.log(`[Capture] Output crop canvas: ${cropW}×${cropH}`);
+      console.log(`[Capture] Crop width >= 600px: ${cropW >= 600}`);
+      
+      // TASK D: Convert to JPEG blob for better quality than dataURL
+      cropCanvas.toBlob(
+        (blob) => {
+          try {
+            if (!blob) {
+              throw new Error('toBlob returned null');
             }
-
-            const blobUrl = URL.createObjectURL(croppedBlob);
+            const blobUrl = URL.createObjectURL(blob);
             setCapturedPhoto(blobUrl);
             setScanState('captured');
-            setSharpnessCheckVisible(false);
-            console.log(
-              `[Capture] ✅ ImageCapture: ${cropRect.width}×${cropRect.height} crop, sharpness=${burstResult.sharpnessScore.toFixed(1)} ✓`
-            );
-            setScanningPhoto(false);
-            return;
+            console.log(`[Capture] ✅ Blob URL: ${blobUrl.substring(0, 50)}...`);
+            console.log(`[Capture] ✅ Captured ${cropW}×${cropH} crop (no smoothing, exact copy from full frame)`);
+          } catch (err) {
+            console.error('toBlob error:', err);
+            setScanState('error');
+            setErrorType('UNKNOWN');
+            setErrorMessage('Lỗi khi xử lý ảnh. Vui lòng thử lại.');
           }
-        } catch (icErr) {
-          console.warn('[Capture] ImageCapture burst failed, falling back to canvas:', icErr);
-        }
-      }
-
-      // Fallback: Canvas burst
-      console.log('[Capture] 📹 Using canvas burst fallback...');
-      const burstResult = await burstCaptureFromVideo(videoRef.current, BURST_COUNT, 150);
-
-      captureInfoRef.current.method = 'Canvas';
-      captureInfoRef.current.burstCount = burstResult.allScores.length;
-      captureInfoRef.current.scores = burstResult.allScores;
-
-      console.log(
-        `[Capture] Canvas burst: ${burstResult.allScores.length} frames, scores=[${burstResult.allScores.map((s) => s.toFixed(1)).join(',')}], best=${burstResult.bestIndex}`
+        },
+        'image/jpeg',
+        0.95
       );
-
-      setSharpnessScore(burstResult.sharpnessScore);
-
-      // Crop the best blob
-      if (cropFrameRef.current) {
-        const { croppedBlob, cropRect } = await cropBlobWithDOM(
-          burstResult.blob,
-          videoRef.current,
-          cropFrameRef.current
-        );
-
-        // Check sharpness threshold
-        if (burstResult.sharpnessScore < SHARPNESS_THRESHOLD) {
-          console.warn(
-            `[Capture] ⚠️ Low sharpness: ${burstResult.sharpnessScore.toFixed(1)} < ${SHARPNESS_THRESHOLD}`
-          );
-          setSharpnessCheckVisible(true);
-          setScanState('error');
-          setErrorType('LOW_SHARPNESS');
-          setErrorMessage(
-            `Ảnh mờ (sharpness: ${burstResult.sharpnessScore.toFixed(1)}/${SHARPNESS_THRESHOLD}). Hãy giữ máy chắc hơn, tiến gần hơn, hoặc bật đèn. Chụp lại?`
-          );
-          setScanningPhoto(false);
-          return;
-        }
-
-        const blobUrl = URL.createObjectURL(croppedBlob);
-        setCapturedPhoto(blobUrl);
-        setScanState('captured');
-        setSharpnessCheckVisible(false);
-        console.log(
-          `[Capture] ✅ Canvas: ${cropRect.width}×${cropRect.height} crop, sharpness=${burstResult.sharpnessScore.toFixed(1)} ✓`
-        );
-      }
     } catch (err) {
-      console.error('[Capture] Burst capture error:', err);
+      console.error('Capture error:', err);
       setScanState('error');
       setErrorType('UNKNOWN');
       setErrorMessage('Không thể chụp ảnh. Vui lòng thử lại.');
-      setSharpnessCheckVisible(false);
-    } finally {
-      setScanningPhoto(false);
     }
   };
 
-  // ── TASK E: Scan from captured photo (BarcodeDetector native + ZXing fallback) ──
+  // ── TASK E: Quét chỉ từ ảnh crop (không recapture) ──
   const handleScanFromPhoto = async () => {
     if (capturedPhoto) {
       setScanningPhoto(true);
       try {
-        console.log('[Decode] 🔍 Fetching captured blob and decoding...');
-
-        // Fetch blob from URL
-        const response = await fetch(capturedPhoto);
-        const blob = await response.blob();
-        console.log(`[Decode] 📦 Blob size: ${blob.size} bytes (${blob.type})`);
-
-        // Decode with optimized pipeline (BarcodeDetector → ZXing)
-        const result = await decodeCroppedBarcode(blob);
-
+        console.log(`[Decode] 🔍 Decoding from captured cropped photo (blob URL)`);
+        
+        const result = await decodeFromCroppedPhoto(capturedPhoto);
+        
         if (result.barcode && isValidBarcode(result.barcode)) {
-          console.log(
-            `[Decode] ✅ SUCCESS (${result.decoderUsed}): ${result.barcode}`
-          );
+          console.log(`[Decode] ✅ SUCCESS: ${result.barcode}`);
           setScannedBarcode(result.barcode);
           const parsed = parseBarcodePrefix(result.barcode);
           setInferredProduct(parsed);
           setScanState('scanned');
         } else {
-          console.log(
-            `[Decode] ❌ No valid barcode (${result.decoderUsed}): ${result.debugInfo}`
-          );
+          console.log(`[Decode] ❌ No valid barcode found`);
           setScanState('error');
           setErrorType('INVALID_FORMAT');
-          setErrorMessage(
-            'Không tìm thấy barcode hợp lệ trong ảnh. Phải bắt đầu bằng 12N5L, 12N7L, YTX4A, YTX5A hoặc YTX7A.'
-          );
+          setErrorMessage('Không tìm thấy barcode hợp lệ trong ảnh. Phải bắt đầu bằng 12N5L, 12N7L, YTX4A, YTX5A hoặc YTX7A.');
         }
       } catch (err) {
-        console.error('[Decode] Error:', err);
+        console.error('Scan error:', err);
         setScanState('error');
         setErrorType('UNKNOWN');
         setErrorMessage('Không thể quét barcode từ ảnh. Vui lòng chụp lại.');
@@ -427,7 +377,7 @@ function BarcodeManagePage() {
           const blob = await (await fetch(uploadedPhoto)).blob();
           const file = new File([blob], 'uploaded.jpg', { type: 'image/jpeg' });
           const result = await decodeFromImageFile(file);
-
+          
           if (result.barcode && isValidBarcode(result.barcode)) {
             console.log('[Decode] SUCCESS:', result.barcode);
             setScannedBarcode(result.barcode);
@@ -634,7 +584,8 @@ function BarcodeManagePage() {
                   style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'cover',
+                    objectFit: 'contain',                    // Show full frame without cropping
+                    objectPosition: 'center',
                     backgroundColor: '#000',
                     WebkitBackfaceVisibility: 'hidden' as any,
                     backfaceVisibility: 'hidden' as any,
@@ -714,6 +665,14 @@ function BarcodeManagePage() {
               <Box className="flex gap-2">
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
                   ✕ Hủy
+                </Button>
+                <Button 
+                  variant={torchOn ? 'primary' : 'secondary'}
+                  onClick={handleTorchToggle}
+                  className="flex-1"
+                  title={torchOn ? 'Tắt đèn flash' : 'Bật đèn flash'}
+                >
+                  {torchOn ? '💡 Tắt' : '💡 Bật'}
                 </Button>
                 <Button 
                   variant="primary" 

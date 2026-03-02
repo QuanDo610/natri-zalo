@@ -618,20 +618,19 @@ export function startCameraPreview(
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
-      // ── TASK A: Optimized high-res getUserMedia constraints ──
+      // ── TASK A: Optimized high-res getUserMedia constraints (portrait-first) ──
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-          aspectRatio: { ideal: 16 / 9 },
-          frameRate: { ideal: 30, max: 60 },
+          width: { ideal: 1440, min: 1280 },          // Portrait-optimized width
+          height: { ideal: 1920, min: 720 },          // Portrait-optimized height (taller)
+          frameRate: { ideal: 30, max: 60 },          // Locked at 30fps for consistency
           // Disable blur-inducing features, keep exposure control
           autoGainControl: true,
           noiseSuppression: false,
           echoCancellation: false,
-        },
+        } as any,  // Allow advanced constraints on some platforms
       });
       
       // Check actual stream resolution
@@ -674,11 +673,11 @@ export function startCameraPreview(
       // ── TASK E: Configure video element WITHOUT blur-inducing styles ──
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('disablepictureinpicture', 'true');
-      // imageRendering: pixelated causes jagged edges on barcode - REMOVED
+      // Use 'contain' (not 'cover') to preserve full barcode region without cropping
       (videoElement as any).style.backfaceVisibility = 'hidden';
       (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
-      (videoElement as any).style.filter = 'none';
-      (videoElement as any).style.objectFit = 'cover';
+      (videoElement as any).style.filter = 'none';                    // No CSS filters
+      (videoElement as any).style.objectFit = 'contain';              // Show entire frame
       (videoElement as any).style.objectPosition = 'center';
       (videoElement as any).style.WebkitFontSmoothing = 'antialiased';
       (videoElement as any).style.textRendering = 'geometricPrecision';
@@ -718,44 +717,72 @@ export function startCameraPreview(
       console.log(`[Camera] Video longSide: ${vLong}, OK: ${vOk}`);
       
       // ── TASK B: Apply focus/exposure/zoom constraints IMMEDIATELY (not after 9s) ──
-      let trackForOuterScope: MediaStreamTrack | null = null;
       try {
         const trackForConstraints = stream.getVideoTracks()[0];
-        trackForOuterScope = trackForConstraints;
         if (trackForConstraints && (trackForConstraints as any).getCapabilities) {
           const capabilities = (trackForConstraints as any).getCapabilities();
           const advancedConstraints: any[] = [];
           
-          // Continuous focus for barcode detail
+          // Continuous focus for barcode detail - MANDATORY for sharp text
           if (capabilities.focusMode?.includes('continuous')) {
             advancedConstraints.push({ focusMode: 'continuous' });
-            console.log('[Camera] ✓ Applied: focusMode=continuous');
+            console.log('[Camera] ✓ focusMode=continuous (barcode detail)');
           }
           
           // Continuous exposure for stable brightness
           if (capabilities.exposureMode?.includes('continuous')) {
             advancedConstraints.push({ exposureMode: 'continuous' });
-            console.log('[Camera] ✓ Applied: exposureMode=continuous');
+            console.log('[Camera] ✓ exposureMode=continuous (stable brightness)');
+          }
+          
+          // Continuous white balance for accurate colors
+          if (capabilities.whiteBalanceMode?.includes('continuous')) {
+            advancedConstraints.push({ whiteBalanceMode: 'continuous' });
+            console.log('[Camera] ✓ whiteBalanceMode=continuous');
+          }
+          
+          // Sharpness: maximize for barcode contrast
+          if (capabilities.sharpness !== undefined) {
+            advancedConstraints.push({ sharpness: capabilities.sharpness.max || 100 });
+            console.log(`[Camera] ✓ sharpness=${capabilities.sharpness.max || 100} (MAX)`);
+          }
+          
+          // Contrast: medium-high for barcode visibility
+          if (capabilities.contrast !== undefined) {
+            const targetContrast = Math.min(
+              capabilities.contrast.max || 100,
+              (capabilities.contrast.max || 100) * 0.75
+            );
+            advancedConstraints.push({ contrast: targetContrast });
+            console.log(`[Camera] ✓ contrast=${Math.round(targetContrast)} (medium-high)`);
+          }
+          
+          // ISO: low noise (<=200) for barcode reading
+          if (capabilities.iso !== undefined) {
+            const targetIso = Math.max(capabilities.iso.min || 100, 200);
+            advancedConstraints.push({ iso: targetIso });
+            console.log(`[Camera] ✓ iso=${targetIso} (noise control)`);
+          }
+          
+          // Exposure time: ~150ms for sharp capture
+          if (capabilities.exposureTime !== undefined) {
+            const targetExposure = capabilities.exposureTime.max || 150;
+            advancedConstraints.push({ exposureTime: [Math.min(targetExposure, 150)] });
+            console.log(`[Camera] ✓ exposureTime~150ms (sharp capture)`);
           }
           
           // Moderate zoom if supported (not 5x - avoid blur/shake on webview)
           if (capabilities.zoom?.min !== undefined && capabilities.zoom?.max !== undefined) {
             const maxZoom = Math.min(capabilities.zoom.max, 2.0); // Cap at 2x for stability
             advancedConstraints.push({ zoom: maxZoom });
-            console.log(`[Camera] ✓ Applied: zoom=${maxZoom}x`);
-          }
-          
-          // Try to enable torch (flashlight) to reduce motion blur
-          if (capabilities.torch) {
-            advancedConstraints.push({ torch: true });
-            console.log('[Camera] ✓ Applied: torch=true (reduces motion blur)');
+            console.log(`[Camera] ✓ zoom=${maxZoom}x (capped for stability)`);
           }
           
           if (advancedConstraints.length > 0) {
             await (trackForConstraints as any).applyConstraints({
               advanced: advancedConstraints
             }).catch((err: any) => {
-              console.log('[Camera] applyConstraints warning:', err.message);
+              console.log('[Camera] ⚠️ applyConstraints warning:', err.message);
             });
           }
         }
@@ -763,14 +790,11 @@ export function startCameraPreview(
         console.log('[Camera] Could not apply constraints:', err);
       }
       
-      // Wait additional 600-800ms for focus/exposure to settle
-      await new Promise(resolve => setTimeout(resolve, 700));
+      // Wait 900ms for autofocus + exposure to settle on Zalo webview
+      await new Promise(resolve => setTimeout(resolve, 900));
       
       (videoElement as any).dataset.focusLocked = 'true';
       console.log('[Camera] ✅ Focus/Exposure settled - Ready for capture');
-      
-      // Store stream + track in global state for later reference
-      (window as any).__NATRI_CAMERA_STATE__ = { stream, track: trackForOuterScope };
     } catch (error: any) {
       console.error('[Camera] Preview error:', error);
       currentPreviewStream = null;
@@ -786,6 +810,72 @@ export function startCameraPreview(
   })();
 
   return cleanup;
+}
+
+// ── Torch control: Manual toggle (not auto-on) ──
+// When torch is enabled, reduce exposure compensation to prevent overexposure
+let torchEnabled = false;
+
+export async function toggleTorch(enable: boolean): Promise<boolean> {
+  if (!currentPreviewStream) {
+    console.warn('[Torch] No active stream to control torch');
+    return false;
+  }
+
+  try {
+    const track = currentPreviewStream.getVideoTracks()[0];
+    if (!track) {
+      console.warn('[Torch] No video track found');
+      return false;
+    }
+
+    const capabilities = (track as any).getCapabilities?.();
+    if (!capabilities) {
+      console.warn('[Torch] Cannot get track capabilities');
+      return false;
+    }
+
+    // Check if torch is supported
+    if (!capabilities.torch) {
+      console.warn('[Torch] Torch not supported on this device');
+      return false;
+    }
+
+    // Apply torch constraint
+    await (track as any).applyConstraints({
+      advanced: [{ torch: enable }]
+    });
+
+    // When torch is ON, reduce exposure compensation to avoid overexposure
+    if (enable && capabilities.exposureCompensation) {
+      const compensation = Math.max(
+        capabilities.exposureCompensation.min || -3,
+        -0.5  // Reduce by 0.5 stops
+      );
+      await (track as any).applyConstraints({
+        advanced: [{ exposureCompensation: compensation }]
+      });
+      console.log(`[Torch] ✓ ON + exposureCompensation=${compensation}`);
+    } else if (!enable && capabilities.exposureCompensation) {
+      // Reset exposure compensation when torch is OFF
+      await (track as any).applyConstraints({
+        advanced: [{ exposureCompensation: 0 }]
+      });
+      console.log('[Torch] ✗ OFF (exposure reset)');
+    } else {
+      console.log(`[Torch] ${enable ? '✓ ON' : '✗ OFF'}`);
+    }
+
+    torchEnabled = enable;
+    return true;
+  } catch (err) {
+    console.error('[Torch] Control error:', err);
+    return false;
+  }
+}
+
+export function getTorchState(): boolean {
+  return torchEnabled;
 }
 
 // ── Continuous auto-scan from existing preview stream ──
@@ -999,556 +1089,4 @@ export function getCameraDebugInfo(): {
   } catch {
     return { streamActive: track.readyState === 'live' };
   }
-}
-
-// ── ImageCapture: Capture photo directly from video track (native, high quality) ──
-export async function capturePhotoWithImageCapture(
-  stream: MediaStream
-): Promise<{
-  blob: Blob;
-  captureMethod: 'ImageCapture';
-  debugInfo: string;
-}> {
-  try {
-    const track = stream.getVideoTracks()[0];
-    if (!track) {
-      throw new Error('No video track in stream');
-    }
-
-    // Check if ImageCapture is available
-    if (typeof ImageCapture === 'undefined') {
-      console.log('[Capture] ImageCapture not available, using canvas fallback');
-      throw new Error('ImageCapture not supported');
-    }
-
-    const imageCapture = new ImageCapture(track);
-    console.log('[Capture] 📸 ImageCapture initialized');
-
-    // Try to get photo capabilities
-    try {
-      const capabilities = await imageCapture.getPhotoCapabilities();
-      console.log('[Capture] Photo capabilities:', capabilities);
-    } catch (err) {
-      console.log('[Capture] Could not get photo capabilities:', err);
-    }
-
-    // Take photo with settings
-    const photoSettings: PhotoSettings = {
-      fillLightMode: 'auto',
-      imageHeight: 1920, // Prefer high resolution
-      imageWidth: 1080,  // Prefer high resolution
-    };
-
-    const blob = await imageCapture.takePhoto(photoSettings);
-    console.log(`[Capture] ✅ ImageCapture: ${blob.size} bytes (${blob.type})`);
-
-    return {
-      blob,
-      captureMethod: 'ImageCapture',
-      debugInfo: `ImageCapture ${blob.size} bytes`,
-    };
-  } catch (err) {
-    console.warn('[Capture] ImageCapture failed:', err, '- falling back to canvas');
-    throw err; // Let caller handle fallback
-  }
-}
-
-// ── Compute sharpness score using Laplacian variance (higher = sharper) ──
-export function computeSharpnessScore(canvas: HTMLCanvasElement): number {
-  try {
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return 0;
-
-    // Get image data
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    // Convert to grayscale (using luminosity formula)
-    const gray = new Uint8Array(width * height);
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      gray[i / 4] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-    }
-
-    // Apply Laplacian kernel: [[0,1,0], [1,-4,1], [0,1,0]]
-    // Laplacian highlights edges; high variance of Laplacian = sharp image
-    const laplacian = new Float32Array(width * height);
-    let minLap = Infinity,
-      maxLap = -Infinity;
-
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const idx = y * width + x;
-        const val =
-          -4 * gray[idx] +
-          gray[idx - 1] +
-          gray[idx + 1] +
-          gray[idx - width] +
-          gray[idx + width];
-        laplacian[idx] = val;
-        minLap = Math.min(minLap, val);
-        maxLap = Math.max(maxLap, val);
-      }
-    }
-
-    // Normalize Laplacian to [0, 255]
-    const range = maxLap - minLap || 1;
-    const normalized = new Uint8Array(laplacian.length);
-    for (let i = 0; i < laplacian.length; i++) {
-      normalized[i] = Math.round(((laplacian[i] - minLap) / range) * 255);
-    }
-
-    // Compute variance of Laplacian
-    let sum = 0,
-      sumSq = 0,
-      count = 0;
-    for (let i = 0; i < normalized.length; i++) {
-      sum += normalized[i];
-      sumSq += normalized[i] * normalized[i];
-      count++;
-    }
-
-    const mean = sum / count;
-    const variance = sumSq / count - mean * mean;
-    const sharpness = Math.max(0, Math.sqrt(variance)); // 0-127.5 typical range
-
-    return sharpness;
-  } catch (err) {
-    console.error('[Sharpness] Error computing score:', err);
-    return 0;
-  }
-}
-
-// ── Crop blob using DOM rect mapping (0-indexed pixel coordinates) ──
-export async function cropBlobWithDOM(
-  blob: Blob,
-  videoElement: HTMLVideoElement,
-  cropFrameElement: HTMLElement | null,
-  onProgress?: (stage: string) => void
-): Promise<{
-  croppedBlob: Blob;
-  cropRect: { x: number; y: number; width: number; height: number };
-  debugInfo: string;
-}> {
-  try {
-    onProgress?.('Creating ImageBitmap from blob');
-
-    // Convert blob to ImageBitmap
-    const bitmap = await createImageBitmap(blob);
-    const sourceWidth = bitmap.width;
-    const sourceHeight = bitmap.height;
-    console.log(`[Crop] Source bitmap: ${sourceWidth}×${sourceHeight}`);
-
-    // Calculate source crop rect from DOM elements
-    const videoRect = videoElement.getBoundingClientRect();
-    if (!cropFrameElement) {
-      throw new Error('Crop frame element not found');
-    }
-
-    const frameRect = cropFrameElement.getBoundingClientRect();
-
-    // Find intersection
-    const left = Math.max(videoRect.left, frameRect.left);
-    const top = Math.max(videoRect.top, frameRect.top);
-    const right = Math.min(videoRect.right, frameRect.right);
-    const bottom = Math.min(videoRect.bottom, frameRect.bottom);
-
-    if (left >= right || top >= bottom) {
-      throw new Error('No intersection between video and crop frame');
-    }
-
-    const intersectionWidth = right - left;
-    const intersectionHeight = bottom - top;
-
-    // Map UI pixels to source pixels
-    const scaleX = sourceWidth / videoRect.width;
-    const scaleY = sourceHeight / videoRect.height;
-
-    const sx = Math.max(0, Math.floor((left - videoRect.left) * scaleX));
-    const sy = Math.max(0, Math.floor((top - videoRect.top) * scaleY));
-    let sw = Math.floor(intersectionWidth * scaleX);
-    let sh = Math.floor(intersectionHeight * scaleY);
-
-    // Clamp to bitmap bounds
-    sw = Math.min(sw, sourceWidth - sx);
-    sh = Math.min(sh, sourceHeight - sy);
-
-    console.log(`[Crop] 📊 Source crop: x=${sx}, y=${sy}, w=${sw}, h=${sh}`);
-
-    // Create crop canvas
-    onProgress?.('Creating crop canvas');
-    const cropCanvas = document.createElement('canvas');
-    const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
-    if (!cropCtx) {
-      throw new Error('Cannot create crop canvas context');
-    }
-
-    cropCanvas.width = sw;
-    cropCanvas.height = sh;
-    cropCtx.imageSmoothingEnabled = false; // ⭐ NO SMOOTHING
-    cropCtx.imageSmoothingQuality = 'low';
-    cropCtx.filter = 'none';
-
-    // Draw cropped region from bitmap
-    cropCtx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
-    console.log(`[Crop] ✅ Crop canvas: ${cropCanvas.width}×${cropCanvas.height}`);
-
-    // Convert crop canvas to blob
-    onProgress?.('Converting to JPEG blob');
-    const croppedBlob = await new Promise<Blob>((resolve, reject) => {
-      cropCanvas.toBlob(
-        (blob) => {
-          if (!blob) reject(new Error('toBlob returned null'));
-          else resolve(blob);
-        },
-        'image/jpeg',
-        0.95
-      );
-    });
-
-    console.log(`[Crop] 📦 Cropped blob: ${croppedBlob.size} bytes`);
-
-    return {
-      croppedBlob,
-      cropRect: { x: sx, y: sy, width: sw, height: sh },
-      debugInfo: `Crop ${sw}×${sh}px (${croppedBlob.size} bytes)`,
-    };
-  } catch (err) {
-    console.error('[Crop] Error:', err);
-    throw err;
-  }
-}
-
-// ── Burst capture with ImageCapture: take N photos and pick sharpest ──
-export async function burstCaptureWithImageCapture(
-  stream: MediaStream,
-  burstCount: number = 3,
-  delayMs: number = 120
-): Promise<{
-  blob: Blob;
-  sharpnessScore: number;
-  bestIndex: number;
-  allScores: number[];
-  debugInfo: string;
-}> {
-  try {
-    const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error('No video track in stream');
-
-    if (typeof (window as any).ImageCapture === 'undefined') {
-      throw new Error('ImageCapture not supported');
-    }
-
-    const imageCapture = new ((window as any).ImageCapture)(track);
-    console.log(`[Burst] 📸 Starting burst capture: ${burstCount} photos, ${delayMs}ms apart`);
-
-    const captures: { blob: Blob; score: number }[] = [];
-    const allScores: number[] = [];
-
-    for (let i = 0; i < burstCount; i++) {
-      try {
-        const blob = await imageCapture.takePhoto({
-          fillLightMode: 'auto',
-        });
-
-        // Create temporary image to get sharpness score
-        const bitmap = await createImageBitmap(blob);
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = bitmap.width;
-        tempCanvas.height = bitmap.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) throw new Error('Cannot create temp canvas');
-        tempCtx.drawImage(bitmap, 0, 0);
-
-        const score = computeSharpnessScore(tempCanvas);
-        captures.push({ blob, score });
-        allScores.push(score);
-
-        console.log(`[Burst] 📷 Frame ${i + 1}/${burstCount}: sharpness=${score.toFixed(2)}`);
-
-        // Wait before next capture (except last frame)
-        if (i < burstCount - 1) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
-      } catch (err) {
-        console.warn(`[Burst] Frame ${i + 1} failed:`, err);
-        if (i === 0) throw err; // If first frame fails, abort burst
-      }
-    }
-
-    if (captures.length === 0) {
-      throw new Error('No frames captured in burst');
-    }
-
-    // Find sharpest frame
-    let bestIndex = 0;
-    let bestScore = captures[0].score;
-    for (let i = 1; i < captures.length; i++) {
-      if (captures[i].score > bestScore) {
-        bestScore = captures[i].score;
-        bestIndex = i;
-      }
-    }
-
-    console.log(
-      `[Burst] ✅ Best frame: index=${bestIndex}, sharpness=${bestScore.toFixed(2)}, count=${captures.length}`
-    );
-
-    return {
-      blob: captures[bestIndex].blob,
-      sharpnessScore: bestScore,
-      bestIndex,
-      allScores,
-      debugInfo: `Burst ${captures.length}fps: best=${bestScore.toFixed(1)}`,
-    };
-  } catch (err) {
-    console.error('[Burst] Error:', err);
-    throw err;
-  }
-}
-
-// ── Fallback burst capture from video element (canvas-based) ──
-export async function burstCaptureFromVideo(
-  videoElement: HTMLVideoElement,
-  burstCount: number = 3,
-  delayMs: number = 150
-): Promise<{
-  blob: Blob;
-  sharpnessScore: number;
-  bestIndex: number;
-  allScores: number[];
-  debugInfo: string;
-}> {
-  try {
-    console.log(`[BurstVideo] 🎬 Starting canvas burst: ${burstCount} frames, ${delayMs}ms apart`);
-
-    const vw = videoElement.videoWidth;
-    const vh = videoElement.videoHeight;
-    if (vw === 0 || vh === 0) throw new Error('Video dimensions invalid');
-
-    const captures: { canvas: HTMLCanvasElement; score: number }[] = [];
-    const allScores: number[] = [];
-
-    for (let i = 0; i < burstCount; i++) {
-      // Capture full video frame
-      const fullCanvas = document.createElement('canvas');
-      const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
-      if (!fullCtx) throw new Error('Cannot create canvas');
-
-      fullCanvas.width = vw;
-      fullCanvas.height = vh;
-      fullCtx.imageSmoothingEnabled = false;
-      fullCtx.filter = 'none';
-      fullCtx.drawImage(videoElement, 0, 0, vw, vh);
-
-      // Compute sharpness on full frame
-      const score = computeSharpnessScore(fullCanvas);
-      captures.push({ canvas: fullCanvas, score });
-      allScores.push(score);
-
-      console.log(`[BurstVideo] 🎬 Frame ${i + 1}/${burstCount}: sharpness=${score.toFixed(2)}`);
-
-      if (i < burstCount - 1) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-
-    if (captures.length === 0) throw new Error('No frames captured');
-
-    // Find sharpest
-    let bestIndex = 0;
-    let bestScore = captures[0].score;
-    for (let i = 1; i < captures.length; i++) {
-      if (captures[i].score > bestScore) {
-        bestScore = captures[i].score;
-        bestIndex = i;
-      }
-    }
-
-    // Convert best canvas to blob
-    const bestCanvas = captures[bestIndex].canvas;
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      bestCanvas.toBlob(
-        (b: Blob | null) => {
-          if (b) resolve(b);
-          else reject(new Error('toBlob failed'));
-        },
-        'image/jpeg',
-        0.95
-      );
-    });
-
-    console.log(
-      `[BurstVideo] ✅ Best frame: index=${bestIndex}, sharpness=${bestScore.toFixed(2)}`
-    );
-
-    return {
-      blob,
-      sharpnessScore: bestScore,
-      bestIndex,
-      allScores,
-      debugInfo: `Canvas burst ${captures.length}fps: best=${bestScore.toFixed(1)}`,
-    };
-  } catch (err) {
-    console.error('[BurstVideo] Error:', err);
-    throw err;
-  }
-}
-
-// ── Decode cropped barcode using BarcodeDetector (native) then ZXing 1D (fallback) ──
-export async function decodeCroppedBarcode(
-  input: Blob | HTMLCanvasElement | HTMLImageElement
-): Promise<{
-  barcode?: string;
-  decoderUsed: 'BarcodeDetector' | 'ZXing' | 'failed';
-  debugInfo: string;
-}> {
-  let debugInfo = '';
-
-  // Type assertion for BarcodeDetector (native API, available in supporting browsers)
-  const BarcodeDetectorAPI = (typeof window !== 'undefined' ? (window as any).BarcodeDetector : null) as any;
-
-  // Try BarcodeDetector (native API, if supported)
-  if (BarcodeDetectorAPI) {
-    try {
-      console.log('[Decode] 🔍 Trying BarcodeDetector (native)...');
-      const detector = new BarcodeDetectorAPI({
-        formats: ['code_128', 'code_39', 'code_93', 'itf', 'ean_13', 'ean_8', 'codabar'],
-      });
-
-      // Create ImageBitmap from input if it's a Blob
-      let bitmapOrElement: any = input;
-      if (input instanceof Blob) {
-        bitmapOrElement = await createImageBitmap(input);
-      }
-
-      const results = await detector.detect(bitmapOrElement);
-      if (results.length > 0) {
-        const barcode = results[0].rawValue?.trim()?.toUpperCase();
-        if (barcode && isValidBarcode(barcode)) {
-          debugInfo = `BarcodeDetector: ${barcode}`;
-          console.log('[Decode] ✅ BarcodeDetector SUCCESS:', barcode);
-          return {
-            barcode,
-            decoderUsed: 'BarcodeDetector',
-            debugInfo,
-          };
-        } else {
-          debugInfo = `BarcodeDetector found: "${results[0].rawValue}" (invalid format)`;
-        }
-      }
-    } catch (err) {
-      console.log('[Decode] BarcodeDetector failed:', err);
-      debugInfo = `BarcodeDetector error: ${(err as Error).message}`;
-    }
-  }
-
-  // Fallback to ZXing
-  try {
-    console.log('[Decode] 🔍 Trying ZXing (fallback)...');
-
-    // Convert Blob to canvas or keep as is
-    let sourceElement: HTMLCanvasElement | HTMLImageElement;
-
-    if (input instanceof Blob) {
-      const bitmap = await createImageBitmap(input);
-      const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Cannot create canvas context');
-      ctx.drawImage(bitmap, 0, 0);
-      sourceElement = canvas;
-    } else {
-      sourceElement = input as HTMLCanvasElement | HTMLImageElement;
-    }
-
-    // Try 1D reader with proper hints
-    const hints = new Map() as any;
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.CODE_39,
-      BarcodeFormat.CODE_93,
-      BarcodeFormat.ITF,
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.EAN_8,
-      BarcodeFormat.CODABAR,
-    ]);
-    hints.set(DecodeHintType.TRY_HARDER, true);
-
-    const reader1D = new BrowserMultiFormatOneDReader(hints);
-
-    try {
-      if (sourceElement instanceof HTMLCanvasElement) {
-        const result = await reader1D.decodeFromCanvas(sourceElement);
-        if (result) {
-          const barcode = result.getText()?.trim()?.toUpperCase();
-          if (barcode && isValidBarcode(barcode)) {
-            debugInfo += ` -> ZXing 1D: ${barcode}`;
-            console.log('[Decode] ✅ ZXing 1D SUCCESS:', barcode);
-            return {
-              barcode,
-              decoderUsed: 'ZXing',
-              debugInfo,
-            };
-          }
-        }
-      } else {
-        // HTMLImageElement
-        const result = await reader1D.decodeFromImageElement(sourceElement);
-        if (result) {
-          const barcode = result.getText()?.trim()?.toUpperCase();
-          if (barcode && isValidBarcode(barcode)) {
-            debugInfo += ` -> ZXing img: ${barcode}`;
-            console.log('[Decode] ✅ ZXing SUCCESS:', barcode);
-            return {
-              barcode,
-              decoderUsed: 'ZXing',
-              debugInfo,
-            };
-          }
-        }
-      }
-    } catch (e) {
-      console.log('[Decode] ZXing 1D failed:', e);
-    }
-
-    // Try multi-format reader
-    const hintsMulti = new Map() as any;
-    hintsMulti.set(DecodeHintType.TRY_HARDER, true);
-    const readerMulti = new BrowserMultiFormatReader(hintsMulti);
-
-    try {
-      if (sourceElement instanceof HTMLCanvasElement) {
-        const result = await readerMulti.decodeFromCanvas(sourceElement);
-        if (result) {
-          const barcode = result.getText()?.trim()?.toUpperCase();
-          if (barcode && isValidBarcode(barcode)) {
-            debugInfo += ` -> ZXing Multi: ${barcode}`;
-            console.log('[Decode] ✅ ZXing Multi SUCCESS:', barcode);
-            return {
-              barcode,
-              decoderUsed: 'ZXing',
-              debugInfo,
-            };
-          }
-        }
-      }
-    } catch (e) {
-      console.log('[Decode] ZXing Multi failed:', e);
-    }
-  } catch (err) {
-    console.error('[Decode] ZXing error:', err);
-    debugInfo += ` -> ZXing exception: ${(err as Error).message}`;
-  }
-
-  console.log('[Decode] ❌ No barcode detected');
-  return {
-    decoderUsed: 'failed',
-    debugInfo: debugInfo || 'No decoder available or barcode not detected',
-  };
 }
