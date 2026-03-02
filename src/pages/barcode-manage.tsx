@@ -16,9 +16,10 @@ import {
   isValidBarcode,
   parseBarcodePrefix,
   SCANNER_VERSION,
+  capturePhotoWithImageCapture,
+  cropBlobWithDOM,
+  decodeCroppedBarcode,
   type ScannerError,
-  setPreviewZoom,
-  getZoomCapabilities,
 } from '@/services/scanner-enhanced';
 import type { ApiError, BarcodeItemInfo } from '@/types';
 
@@ -96,7 +97,6 @@ function BarcodeManagePage() {
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [scanningPhoto, setScanningPhoto] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
-  const [cssZoom, setCssZoom] = useState(false);
   const [focusLocked, setFocusLocked] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [inferredProduct, setInferredProduct] = useState<{ sku: string; productName: string } | null>(null);
@@ -105,6 +105,8 @@ function BarcodeManagePage() {
   const [successMessage, setSuccessMessage] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const cropFrameRef = useRef<HTMLDivElement>(null); // ⭐ For DOM-based crop calculation
+  const mediaStreamRef = useRef<MediaStream | null>(null); // ⭐ For ImageCapture
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null); // ⭐ For ImageCapture
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -167,8 +169,7 @@ function BarcodeManagePage() {
     setErrorType(null);
     setSuccessMessage('');
     setScanState('previewing');
-    setCssZoom(false); // reset CSS zoom
-    setFocusLocked(false); // ⭐ Reset focus lock state
+    setFocusLocked(false);
 
     // Wait for video element to render
     setTimeout(() => {
@@ -179,10 +180,9 @@ function BarcodeManagePage() {
         return;
       }
 
-      // Start camera preview (không scan liên tục)
+      // Start camera preview
       const cleanup = startCameraPreview(
         videoRef.current,
-        // onError
         (errType, errMsg) => {
           setScanState('error');
           setErrorType(errType);
@@ -192,20 +192,24 @@ function BarcodeManagePage() {
 
       cleanupRef.current = cleanup;
 
-      // After autofocus completes (7s), enable capture button and apply zoom
-      setTimeout(async () => {
-        setFocusLocked(true); // ⭐ Autofocus is now locked, can capture
-        
-        // Try hardware zoom x3 first
-        const hwZoomOk = await setPreviewZoom(3.0);
-        if (!hwZoomOk) {
-          // Hardware zoom not supported — use CSS transform as visual zoom
-          setCssZoom(true);
-          console.log('[Scan] Using CSS zoom fallback (scale 2x)');
-        } else {
-          console.log('[Scan] Hardware zoom x3 applied');
+      // Capture mediaStream + videoTrack for ImageCapture API
+      setTimeout(() => {
+        if (videoRef.current?.srcObject instanceof MediaStream) {
+          mediaStreamRef.current = videoRef.current.srcObject;
+          const tracks = videoRef.current.srcObject.getVideoTracks();
+          if (tracks.length > 0) {
+            videoTrackRef.current = tracks[0];
+            console.log('[Capture] 📸 Captured MediaStream and VideoTrack for ImageCapture');
+          }
         }
-      }, 7300); // Match the 7s autofocus wait + buffer
+      }, 500);
+
+      // Wait ~2 seconds AFTER startCameraPreview completes (which includes 700ms settle time)
+      // This gives focus/exposure final stabilization before enabling capture
+      setTimeout(() => {
+        setFocusLocked(true);
+        console.log('[Scan] Camera ready for capture (focus settled)');
+      }, 2000);
     }, 100);
   };
 
@@ -228,7 +232,7 @@ function BarcodeManagePage() {
     setTimeout(() => handleStartScan(), 200);
   };
 
-  // ── Chụp ảnh từ camera preview ──
+  // ── TASK D: Capture photo - ImageCapture (native) or Canvas (fallback) ──
   const handleCapturePhoto = async () => {
     if (!videoRef.current) {
       setScanState('error');
@@ -237,77 +241,192 @@ function BarcodeManagePage() {
       return;
     }
 
+    setScanningPhoto(true);
+    let captureMethod: 'ImageCapture' | 'canvas' = 'canvas';
+
     try {
+      // Try ImageCapture API first (native, higher quality)
+      if (mediaStreamRef.current && videoTrackRef.current) {
+        try {
+          console.log('[Capture] 📸 Attempting ImageCapture API...');
+          const result = await capturePhotoWithImageCapture(mediaStreamRef.current);
+          captureMethod = result.captureMethod;
+          console.log(`[Capture] ✅ Method: ${captureMethod}, ${result.debugInfo}`);
+
+          // Crop the blob and save
+          if (cropFrameRef.current) {
+            const { croppedBlob, cropRect, debugInfo } = await cropBlobWithDOM(
+              result.blob,
+              videoRef.current,
+              cropFrameRef.current
+            );
+            console.log(`[Capture] [${captureMethod}] Cropped: ${debugInfo}`);
+
+            const blobUrl = URL.createObjectURL(croppedBlob);
+            setCapturedPhoto(blobUrl);
+            setScanState('captured');
+            console.log(
+              `[Capture] ✅ [${captureMethod}] Captured ${cropRect.width}×${cropRect.height} crop`
+            );
+            setScanningPhoto(false);
+            return;
+          }
+        } catch (icErr) {
+          console.warn('[Capture] ImageCapture failed, falling back to canvas:', icErr);
+        }
+      }
+
+      // Fallback: Canvas-based capture
+      console.log('[Capture] 📸 Using canvas fallback...');
+      captureMethod = 'canvas';
+
       const video = videoRef.current;
       const vw = video.videoWidth;
       const vh = video.videoHeight;
-      
-      console.log(`[Capture] 📹 Video source: ${vw}x${vh}`);
-      
-      // Compute source crop rect from DOM (accounts for scale/transform/zoom)
+
+      console.log(`[Capture] [canvas] 📹 Video source: ${vw}×${vh}`);
+      const capLong = Math.max(vw, vh);
+      const capOk = capLong >= 1280;
+      console.log(`[Capture] [canvas] LongSide: ${capLong}, OK: ${capOk}`);
+
+      // Log track settings if available
+      try {
+        const track =
+          video.srcObject instanceof MediaStream ? video.srcObject.getVideoTracks()[0] : null;
+        if (track) {
+          const settings = track.getSettings();
+          const tLong = Math.max(settings.width || 0, settings.height || 0);
+          console.log(`[Capture] [canvas] track.getSettings():`, settings);
+          console.log(`[Capture] [canvas] Track LongSide: ${tLong}, OK: ${tLong >= 1280}`);
+        }
+      } catch (e) {
+        console.log('[Capture] [canvas] Could not get track settings:', e);
+      }
+
+      // Step 1: Capture FULL video frame at native resolution (no upscale, no blur)
+      const fullCanvas = document.createElement('canvas');
+      const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+      if (!fullCtx) throw new Error('Cannot create full canvas context');
+
+      fullCanvas.width = vw;
+      fullCanvas.height = vh;
+      fullCtx.imageSmoothingEnabled = false; // CRITICAL: TẮT SMOOTHING
+      fullCtx.imageSmoothingQuality = 'low';
+      fullCtx.filter = 'none';
+      fullCtx.globalCompositeOperation = 'source-over';
+      fullCtx.drawImage(video, 0, 0, vw, vh);
+      console.log(
+        `[Capture] [canvas] Full canvas: ${fullCanvas.width}×${fullCanvas.height} (imageSmoothingEnabled=${fullCtx.imageSmoothingEnabled})`
+      );
+
+      // Step 2: Crop from full frame (no scaling, exact crop region)
       const sourceCrop = computeSourceCropRectFromDom(video, cropFrameRef.current);
       if (!sourceCrop) {
         throw new Error('Cannot compute crop rect from DOM');
       }
-      
-      // Capture ONLY the crop region directly (single unified image)
+
       const cropCanvas = document.createElement('canvas');
       const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
-      if (!cropCtx) throw new Error('Cannot create canvas context');
-      
-      // MAXIMIZE capture quality: disable ALL smoothing
-      cropCtx.imageSmoothingEnabled = false;
-      cropCtx.imageSmoothingQuality = 'high';
+      if (!cropCtx) throw new Error('Cannot create crop canvas context');
+
+      const cropW = Math.round(sourceCrop.width);
+      const cropH = Math.round(sourceCrop.height);
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+      cropCtx.imageSmoothingEnabled = false; // TẮT HẾT SMOOTHING
+      cropCtx.imageSmoothingQuality = 'low';
       cropCtx.filter = 'none';
       cropCtx.globalCompositeOperation = 'source-over';
-      cropCanvas.width = sourceCrop.width;
-      cropCanvas.height = sourceCrop.height;
-      
-      // Draw cropped region at FULL resolution (exact source pixels - this is THE image for everything)
+
+      // TASK C: Copy từ fullCanvas (exact 1:1, NO resize/blur)
+      // sourceCrop đã là pixel tuyệt đối từ video source
       cropCtx.drawImage(
-        video,
-        sourceCrop.x, sourceCrop.y, sourceCrop.width, sourceCrop.height,
-        0, 0, sourceCrop.width, sourceCrop.height
+        fullCanvas,
+        sourceCrop.x,
+        sourceCrop.y,
+        sourceCrop.width,
+        sourceCrop.height,
+        0,
+        0,
+        cropW,
+        cropH
       );
-      
-      // Single unified image: crop region at MAXIMUM quality (1.0 = 100% JPEG quality no compression)
-      const photoDataUrl = cropCanvas.toDataURL('image/jpeg', 1.0);
-      setCapturedPhoto(photoDataUrl);
-      
-      setScanState('captured');
-      console.log(`[Capture] ✅ Captured crop region: ${sourceCrop.width}x${sourceCrop.height}`);
+
+      console.log(`[Capture] [canvas] Step 2: Cropped from full`);
+      console.log(
+        `[Capture] [canvas] Source crop: x=${sourceCrop.x}, y=${sourceCrop.y}, w=${sourceCrop.width}, h=${sourceCrop.height}`
+      );
+      console.log(`[Capture] [canvas] Output crop canvas: ${cropW}×${cropH}`);
+      console.log(`[Capture] [canvas] Crop width >= 600px: ${cropW >= 600}`);
+
+      // TASK D: Convert to JPEG blob for better quality than dataURL
+      cropCanvas.toBlob(
+        (blob) => {
+          try {
+            if (!blob) {
+              throw new Error('toBlob returned null');
+            }
+            const blobUrl = URL.createObjectURL(blob);
+            setCapturedPhoto(blobUrl);
+            setScanState('captured');
+            console.log(`[Capture] [canvas] ✅ Blob URL: ${blobUrl.substring(0, 50)}...`);
+            console.log(`[Capture] [canvas] ✅ Captured ${cropW}×${cropH} crop (no smoothing)`);
+          } catch (err) {
+            console.error('[Capture] [canvas] toBlob error:', err);
+            setScanState('error');
+            setErrorType('UNKNOWN');
+            setErrorMessage('Lỗi khi xử lý ảnh. Vui lòng thử lại.');
+          } finally {
+            setScanningPhoto(false);
+          }
+        },
+        'image/jpeg',
+        0.95
+      );
     } catch (err) {
-      console.error('Capture error:', err);
+      console.error(`[Capture] [${captureMethod}] Error:`, err);
       setScanState('error');
       setErrorType('UNKNOWN');
       setErrorMessage('Không thể chụp ảnh. Vui lòng thử lại.');
+      setScanningPhoto(false);
     }
   };
 
-  // ── Quét barcode từ ảnh đã chụp hoặc upload ──
+  // ── TASK E: Scan from captured photo (BarcodeDetector native + ZXing fallback) ──
   const handleScanFromPhoto = async () => {
     if (capturedPhoto) {
-      // ⭐⭐⭐ CRITICAL: Use single unified captured image (already cropped)
       setScanningPhoto(true);
       try {
-        console.log(`[Decode] 🔍 Decoding from captured photo`);
-        
-        const result = await decodeFromCroppedPhoto(capturedPhoto);
-        
+        console.log('[Decode] 🔍 Fetching captured blob and decoding...');
+
+        // Fetch blob from URL
+        const response = await fetch(capturedPhoto);
+        const blob = await response.blob();
+        console.log(`[Decode] 📦 Blob size: ${blob.size} bytes (${blob.type})`);
+
+        // Decode with optimized pipeline (BarcodeDetector → ZXing)
+        const result = await decodeCroppedBarcode(blob);
+
         if (result.barcode && isValidBarcode(result.barcode)) {
-          console.log(`[Decode] ✅ SUCCESS: ${result.barcode}`);
+          console.log(
+            `[Decode] ✅ SUCCESS (${result.decoderUsed}): ${result.barcode}`
+          );
           setScannedBarcode(result.barcode);
           const parsed = parseBarcodePrefix(result.barcode);
           setInferredProduct(parsed);
           setScanState('scanned');
         } else {
-          console.log(`[Decode] ❌ No valid barcode found`);
+          console.log(
+            `[Decode] ❌ No valid barcode (${result.decoderUsed}): ${result.debugInfo}`
+          );
           setScanState('error');
           setErrorType('INVALID_FORMAT');
-          setErrorMessage('Không tìm thấy barcode hợp lệ trong ảnh. Phải bắt đầu bằng 12N5L, 12N7L, YTX4A, YTX5A hoặc YTX7A.');
+          setErrorMessage(
+            'Không tìm thấy barcode hợp lệ trong ảnh. Phải bắt đầu bằng 12N5L, 12N7L, YTX4A, YTX5A hoặc YTX7A.'
+          );
         }
       } catch (err) {
-        console.error('Scan error:', err);
+        console.error('[Decode] Error:', err);
         setScanState('error');
         setErrorType('UNKNOWN');
         setErrorMessage('Không thể quét barcode từ ảnh. Vui lòng chụp lại.');
@@ -315,100 +434,34 @@ function BarcodeManagePage() {
         setScanningPhoto(false);
       }
     } else if (uploadedPhoto) {
-      // Re-scan uploaded photo with enhanced processing
       setScanningPhoto(true);
-      try {
-        const img = new Image();
-        img.onload = async () => {
-          try {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-              setScanState('error');
-              setErrorType('UNKNOWN');
-              setErrorMessage('Cannot create canvas context');
-              setScanningPhoto(false);
-              return;
-            }
+      console.log('[Decode] Re-scanning uploaded photo using decodeFromImageFile');
+      (async () => {
+        try {
+          const blob = await (await fetch(uploadedPhoto)).blob();
+          const file = new File([blob], 'uploaded.jpg', { type: 'image/jpeg' });
+          const result = await decodeFromImageFile(file);
 
-            // Try multiple processing approaches
-            const attempts = [
-              { scale: 1, enhance: false, label: 'original' },
-              { scale: 0.8, enhance: false, label: 'scaled' },
-              { scale: 1, enhance: true, label: 'enhanced' },
-              { scale: 0.6, enhance: true, label: 'small enhanced' },
-            ];
-
-            let found = false;
-            let debugInfo = `Re-scanning ${img.width}x${img.height}px image. `;
-            
-            for (const attempt of attempts) {
-              if (found) break;
-              
-              canvas.width = Math.floor(img.width * attempt.scale);
-              canvas.height = Math.floor(img.height * attempt.scale);
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-              if (attempt.enhance) {
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                  const gray = Math.floor(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
-                  const enhanced = gray > 128 ? 255 : 0;
-                  data[i] = data[i + 1] = data[i + 2] = enhanced;
-                }
-                ctx.putImageData(imageData, 0, 0);
-              }
-
-              try {
-                const reader = new (await import('@zxing/browser')).BrowserMultiFormatReader();
-                const result = await reader.decodeFromCanvas(canvas);
-                if (result) {
-                  const scannedCode = result.getText()?.trim()?.toUpperCase();
-                  if (scannedCode && isValidBarcode(scannedCode)) {
-                    setScannedBarcode(scannedCode);
-                    const parsed = parseBarcodePrefix(scannedCode);
-                    setInferredProduct(parsed);
-                    setScanState('scanned');
-                    found = true;
-                    debugInfo += `Found with ${attempt.label} (${canvas.width}x${canvas.height}).`;
-                    console.log('Re-scan success:', debugInfo);
-                    break;
-                  }
-                }
-              } catch {
-                debugInfo += `Tried ${attempt.label}, `;
-              }
-            }
-
-            if (!found) {
-              setScanState('error');
-              setErrorType('INVALID_FORMAT');
-              setErrorMessage(`Không tìm thấy barcode hợp lệ. ${debugInfo} Hãy thử ảnh khác có barcode rõ nét hơn.`);
-            }
-          } catch (err) {
-            console.error('Re-scan error:', err);
+          if (result.barcode && isValidBarcode(result.barcode)) {
+            console.log('[Decode] SUCCESS:', result.barcode);
+            setScannedBarcode(result.barcode);
+            const parsed = parseBarcodePrefix(result.barcode);
+            setInferredProduct(parsed);
+            setScanState('scanned');
+          } else {
             setScanState('error');
-            setErrorType('UNKNOWN');
-            setErrorMessage('Lỗi khi quét lại ảnh. Vui lòng thử ảnh khác.');
-          } finally {
-            setScanningPhoto(false);
+            setErrorType('INVALID_FORMAT');
+            setErrorMessage(result.barcode ? 'Invalid prefix' : 'No barcode detected');
           }
-        };
-        img.onerror = () => {
+        } catch (err) {
+          console.error('Upload scan error:', err);
           setScanState('error');
           setErrorType('UNKNOWN');
-          setErrorMessage('Lỗi khi tải ảnh. Vui lòng thử lại.');
+          setErrorMessage('Lỗi quét ảnh upload');
+        } finally {
           setScanningPhoto(false);
-        };
-        img.src = uploadedPhoto;
-      } catch (err) {
-        console.error('Upload scan error:', err);
-        setScanState('error');
-        setErrorType('UNKNOWN');
-        setErrorMessage('Lỗi khi quét ảnh upload. Vui lòng thử lại.');
-        setScanningPhoto(false);
-      }
+        }
+      })();
     } else {
       setScanState('error');
       setErrorType('UNKNOWN');
@@ -597,15 +650,10 @@ function BarcodeManagePage() {
                     height: '100%',
                     objectFit: 'cover',
                     backgroundColor: '#000',
-                    imageRendering: 'pixelated' as any,
-                    WebkitAppearance: 'none' as any,
-                    MozAppearance: 'none' as any,
                     WebkitBackfaceVisibility: 'hidden' as any,
                     backfaceVisibility: 'hidden' as any,
                     WebkitFontSmoothing: 'antialiased' as any,
                     textRendering: 'geometricPrecision' as any,
-                    transform: 'translateZ(0)' as any,
-                    WebkitTransform: 'translateZ(0)' as any,
                   }}
                 />
                 
@@ -620,9 +668,7 @@ function BarcodeManagePage() {
                     height: '50%',
                     boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,0.5)',
                     borderRadius: '0px',
-                    imageRendering: 'crisp-edges',
                     backfaceVisibility: 'hidden',
-                    WebkitFontSmoothing: 'antialiased',
                   }}
                 />
                 
@@ -677,7 +723,7 @@ function BarcodeManagePage() {
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-500">
-                {cssZoom ? '🔍 Đã phóng to 2x - Đưa barcode vào giữa khung xanh và chụp ảnh' : 'Đưa barcode vào khung xanh và chụp ảnh'}
+                Đưa barcode vào khung xanh và chụp ảnh
               </Text>
               <Box className="flex gap-2">
                 <Button variant="secondary" onClick={handleStopScan} className="flex-1">
@@ -714,18 +760,15 @@ function BarcodeManagePage() {
                     height: '100%',
                     objectFit: 'contain',
                     objectPosition: 'center',
-                    imageRendering: 'pixelated' as any,
+                    imageRendering: 'crisp-edges' as any, // Sharp edges for barcode lines
                     WebkitBackfaceVisibility: 'hidden' as any,
                     backfaceVisibility: 'hidden' as any,
-                    transform: 'scale(3) translateZ(0)',
-                    transformOrigin: 'center',
-                    WebkitAppearance: 'none' as any,
                     textRendering: 'geometricPrecision' as any,
                   }}
                 />
               </Box>
               <Text size="xSmall" className="text-center text-gray-600">
-                {capturedPhoto ? 'Ảnh đã chụp từ camera (đã crop) - 3x phóng to. Nhấn "Quét" hoặc thử lại.' : 'Ảnh đã tải lên - 3x phóng to.'}
+                {capturedPhoto ? '✨ Ảnh chụp sắc nét (full-res, no blur). Nhấn Quét hoặc thử lại.' : '✨ Ảnh tải lên.'}
               </Text>
               <Box className="flex gap-2">
                 {capturedPhoto && !uploadedPhoto ? (
@@ -733,17 +776,17 @@ function BarcodeManagePage() {
                   <Button 
                     variant="secondary" 
                     onClick={() => {
-                      console.log('[Capture] Restarting camera...');
+                      console.log('[Recapture] Restarting camera...');
                       // Cleanup old camera stream first
                       if (cleanupRef.current) {
                         cleanupRef.current();
                         cleanupRef.current = null;
                       }
                       setCapturedPhoto(null);
-                      setCssZoom(false);
+                      setFocusLocked(false);
                       setScanState('previewing');
                       
-                      // Wait for video element to be rendered, then restart camera
+                      // Wait for video element, then restart camera
                       setTimeout(() => {
                         if (videoRef.current) {
                           const cleanup = startCameraPreview(
@@ -756,18 +799,15 @@ function BarcodeManagePage() {
                           );
                           cleanupRef.current = cleanup;
                           
-                          // Re-apply zoom after camera restarts
-                          setTimeout(async () => {
-                            const hwZoomOk = await setPreviewZoom(3.0);
-                            if (!hwZoomOk) {
-                              setCssZoom(true);
-                              console.log('[Scan] Using CSS zoom fallback (scale 2x)');
-                            }
-                          }, 700);
+                          // Enable capture after focus/exposure settles (~2s from startCameraPreview)
+                          setTimeout(() => {
+                            setFocusLocked(true);
+                            console.log('[Recapture] Ready for capture');
+                          }, 2000);
                         } else {
-                          console.error('[Capture] Video element not ready');
+                          console.error('[Recapture] Video element not ready');
                         }
-                      }, 150);
+                      }, 100);
                     }}
                     className="flex-1"
                   >
@@ -786,41 +826,15 @@ function BarcodeManagePage() {
                     <Button 
                       variant="tertiary" 
                       onClick={() => {
-                        console.log('[Capture] Starting new camera capture...');
-                        // Cleanup old camera stream first
-                        if (cleanupRef.current) {
-                          cleanupRef.current();
-                          cleanupRef.current = null;
-                        }
+                        console.log('[Capture] New capture (stream kept active)');
                         setUploadedPhoto(null);
-                        setCssZoom(false);
                         setScanState('previewing');
                         
-                        // Wait for video element to be rendered, then restart camera
+                        // Stream stays active - just reset UI
                         setTimeout(() => {
-                          if (videoRef.current) {
-                            const cleanup = startCameraPreview(
-                              videoRef.current,
-                              (errType, errMsg) => {
-                                setScanState('error');
-                                setErrorType(errType);
-                                setErrorMessage(errMsg);
-                              }
-                            );
-                            cleanupRef.current = cleanup;
-                            
-                            // Re-apply zoom after camera restarts
-                            setTimeout(async () => {
-                              const hwZoomOk = await setPreviewZoom(3.0);
-                              if (!hwZoomOk) {
-                                setCssZoom(true);
-                                console.log('[Scan] Using CSS zoom fallback (scale 2x)');
-                              }
-                            }, 700);
-                          } else {
-                            console.error('[Capture] Video element not ready');
-                          }
-                        }, 150);
+                          setFocusLocked(true);
+                          console.log('[Capture] Ready for capture');
+                        }, 300);
                       }}
                       className="flex-1"
                     >
@@ -863,10 +877,11 @@ function BarcodeManagePage() {
                       imageRendering: 'pixelated' as any,
                       WebkitBackfaceVisibility: 'hidden' as any,
                       backfaceVisibility: 'hidden' as any,
-                      transform: 'scale(3) translateZ(0)',
+                      transform: 'scale(5) translateZ(0)',
                       transformOrigin: 'center',
                       WebkitAppearance: 'none' as any,
                       textRendering: 'geometricPrecision' as any,
+                      filter: 'contrast(1.4) saturate(1.3) brightness(1.1) drop-shadow(0 0 0.5px rgba(0,0,0,0.3))' as any,
                     }}
                   />
                 </Box>

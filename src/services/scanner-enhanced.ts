@@ -618,18 +618,49 @@ export function startCameraPreview(
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
+      // ── TASK A: Optimized high-res getUserMedia constraints ──
       const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
         video: {
-          facingMode: 'environment',
-          width: { min: 1280, ideal: 1920, max: 4096 },
-          height: { min: 720, ideal: 1080, max: 2160 },
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
           aspectRatio: { ideal: 16 / 9 },
-          // Prioritize focus and exposure quality — disable noise processing that blurs
+          frameRate: { ideal: 30, max: 60 },
+          // Disable blur-inducing features, keep exposure control
           autoGainControl: true,
           noiseSuppression: false,
           echoCancellation: false,
         },
       });
+      
+      // Check actual stream resolution
+      const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack) {
+        stream.getTracks().forEach(t => t.stop());
+        onError('UNKNOWN_ERROR', 'Không thể lấy video track từ stream');
+        return;
+      }
+      
+      const streamSettings = videoTrack.getSettings();
+      const streamWidth = streamSettings.width || 0;
+      const streamHeight = streamSettings.height || 0;
+      const streamFps = streamSettings.frameRate || 0;
+      
+      // TASK A: Check resolution by long side (handle portrait/landscape)
+      const longSide = Math.max(streamWidth, streamHeight);
+      const shortSide = Math.min(streamWidth, streamHeight);
+      const isPortrait = streamHeight > streamWidth;
+      const okRes = longSide >= 1280;
+      
+      console.log(`[Camera] Stream acquired: ${streamWidth}×${streamHeight} @ ${streamFps.toFixed(1)}fps`);
+      console.log(`[Camera] track.getSettings():`, streamSettings);
+      console.log(`[Camera] Portrait: ${isPortrait}, LongSide: ${longSide}, ShortSide: ${shortSide}`);
+      console.log(`[Camera] Resolution check: longSide(${longSide}) >= 1280 => ${okRes}`);
+      
+      if (longSide < 1280) {
+        console.warn(`[Camera] ⚠️ LOW RES: longSide=${longSide} < 1280. Consider alternative constraints...`);
+      }
       
       // Double-check video element is still available (user might have closed camera)
       if (!videoElement) {
@@ -640,57 +671,97 @@ export function startCameraPreview(
       currentPreviewStream = stream;
       videoElement.srcObject = stream;
       
-      // Configure video element for MAXIMUM sharpness + crystal clarity
+      // ── TASK E: Configure video element WITHOUT blur-inducing styles ──
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('disablepictureinpicture', 'true');
-      (videoElement as any).style.imageRendering = 'pixelated';
+      // imageRendering: pixelated causes jagged edges on barcode - REMOVED
       (videoElement as any).style.backfaceVisibility = 'hidden';
       (videoElement as any).style.WebkitBackfaceVisibility = 'hidden';
-      (videoElement as any).style.perspective = 'none';
-      (videoElement as any).style.WebkitPerspective = 'none';
       (videoElement as any).style.filter = 'none';
       (videoElement as any).style.objectFit = 'cover';
       (videoElement as any).style.objectPosition = 'center';
       (videoElement as any).style.WebkitFontSmoothing = 'antialiased';
       (videoElement as any).style.textRendering = 'geometricPrecision';
-      (videoElement as any).style.transform = 'translateZ(0)';
-      (videoElement as any).style.WebkitTransform = 'translateZ(0)';
       (videoElement as any).style.lineHeight = '0';
       (videoElement as any).style.fontSize = '0';
       
-      // Wait briefly for stream setup
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
+      // ── TASK C: Wait for video to be truly ready (not 9 seconds) ──
       try {
-        // Play video
         await videoElement.play();
-        
-        // Wait LONGER for autofocus to lock (7 seconds of continuous focus)
-        await new Promise(resolve => setTimeout(resolve, 7000));
-        
-        // Disable capture until focus is locked
-        (videoElement as any).dataset.focusLocked = 'true';
-        
-        // Log camera state
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-          const settings = videoTrack.getSettings();
-          const width = settings.width || 1280;
-          const height = settings.height || 720;
-          console.log(`[Camera] ✅ Ready: ${width}×${height} - Autofocus locked`);
-        }
       } catch (playError: any) {
         if (playError.name === 'AbortError') {
-          console.log('[Camera] Retrying play()...');
+          console.log('[Camera] Play aborted, retrying...');
           await new Promise(resolve => setTimeout(resolve, 200));
           await videoElement.play();
-          await new Promise(resolve => setTimeout(resolve, 5000));
         } else {
           throw playError;
         }
       }
+      
+      // Wait for video bytes to start flowing + resolution to be known
+      const maxRetries = 30;
+      let retries = 0;
+      while (retries < maxRetries && (videoElement.readyState < 2 || videoElement.videoWidth === 0)) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retries++;
+      }
+      
+      if (videoElement.readyState < 2 || videoElement.videoWidth === 0) {
+        throw new Error('Video did not reach HAVE_CURRENT_DATA state');
+      }
+      
+      const vw = videoElement.videoWidth;
+      const vh = videoElement.videoHeight;
+      const vLong = Math.max(vw, vh);
+      const vOk = vLong >= 1280;
+      console.log(`[Camera] Video ready: ${vw}×${vh}`);
+      console.log(`[Camera] Video longSide: ${vLong}, OK: ${vOk}`);
+      
+      // ── TASK B: Apply focus/exposure/zoom constraints IMMEDIATELY (not after 9s) ──
+      try {
+        const trackForConstraints = stream.getVideoTracks()[0];
+        if (trackForConstraints && (trackForConstraints as any).getCapabilities) {
+          const capabilities = (trackForConstraints as any).getCapabilities();
+          const advancedConstraints: any[] = [];
+          
+          // Continuous focus for barcode detail
+          if (capabilities.focusMode?.includes('continuous')) {
+            advancedConstraints.push({ focusMode: 'continuous' });
+            console.log('[Camera] ✓ Applied: focusMode=continuous');
+          }
+          
+          // Continuous exposure for stable brightness
+          if (capabilities.exposureMode?.includes('continuous')) {
+            advancedConstraints.push({ exposureMode: 'continuous' });
+            console.log('[Camera] ✓ Applied: exposureMode=continuous');
+          }
+          
+          // Moderate zoom if supported (not 5x - avoid blur/shake on webview)
+          if (capabilities.zoom?.min !== undefined && capabilities.zoom?.max !== undefined) {
+            const maxZoom = Math.min(capabilities.zoom.max, 2.0); // Cap at 2x for stability
+            advancedConstraints.push({ zoom: maxZoom });
+            console.log(`[Camera] ✓ Applied: zoom=${maxZoom}x`);
+          }
+          
+          if (advancedConstraints.length > 0) {
+            await (trackForConstraints as any).applyConstraints({
+              advanced: advancedConstraints
+            }).catch((err: any) => {
+              console.log('[Camera] applyConstraints warning:', err.message);
+            });
+          }
+        }
+      } catch (err) {
+        console.log('[Camera] Could not apply constraints:', err);
+      }
+      
+      // Wait additional 600-800ms for focus/exposure to settle
+      await new Promise(resolve => setTimeout(resolve, 700));
+      
+      (videoElement as any).dataset.focusLocked = 'true';
+      console.log('[Camera] ✅ Focus/Exposure settled - Ready for capture');
     } catch (error: any) {
-      console.error('Camera preview error:', error);
+      console.error('[Camera] Preview error:', error);
       currentPreviewStream = null;
       
       if (error.name === 'NotAllowedError') {
@@ -853,14 +924,6 @@ export async function captureAndDecode(videoElement: HTMLVideoElement): Promise<
   };
 }
 
-/** 
- * Decode barcode from a cropped photo (data URL or Blob)
- * This MUST be used instead of captureAndDecode when you have a pre-cropped photo
- * 
- * @param dataUrl - Base64 data URL from canvas.toDataURL()
- * @param cropRect - Optional: crop rectangle info for logging
- * @returns Promise with barcode and debug info
- */
 export async function decodeFromCroppedPhoto(
   dataUrl: string,
   cropRect?: { x: number; y: number; width: number; height: number },
@@ -889,4 +952,346 @@ export async function decodeFromCroppedPhoto(
     console.error('[decodeFromCroppedPhoto] Error:', err);
     throw err;
   }
+}
+
+/** 
+ * Get current camera stream debug info (resolution, capabilities, etc.)
+ * Useful for troubleshooting low-res captures.
+ */
+export function getCameraDebugInfo(): {
+  streamActive: boolean;
+  streamWidth?: number;
+  streamHeight?: number;
+  streamFps?: number;
+  zoomSupported?: boolean;
+  focusSupported?: boolean;
+  exposureSupported?: boolean;
+} | null {
+  if (!currentPreviewStream) return null;
+  
+  const track = currentPreviewStream.getVideoTracks()[0];
+  if (!track) return null;
+  
+  try {
+    const settings = track.getSettings();
+    const capabilities = (track as any).getCapabilities?.();
+    
+    return {
+      streamActive: track.readyState === 'live',
+      streamWidth: settings.width,
+      streamHeight: settings.height,
+      streamFps: settings.frameRate,
+      zoomSupported: capabilities?.zoom?.min !== undefined,
+      focusSupported: capabilities?.focusMode !== undefined,
+      exposureSupported: capabilities?.exposureMode !== undefined,
+    };
+  } catch {
+    return { streamActive: track.readyState === 'live' };
+  }
+}
+
+// ── ImageCapture: Capture photo directly from video track (native, high quality) ──
+export async function capturePhotoWithImageCapture(
+  stream: MediaStream
+): Promise<{
+  blob: Blob;
+  captureMethod: 'ImageCapture';
+  debugInfo: string;
+}> {
+  try {
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      throw new Error('No video track in stream');
+    }
+
+    // Check if ImageCapture is available
+    if (typeof ImageCapture === 'undefined') {
+      console.log('[Capture] ImageCapture not available, using canvas fallback');
+      throw new Error('ImageCapture not supported');
+    }
+
+    const imageCapture = new ImageCapture(track);
+    console.log('[Capture] 📸 ImageCapture initialized');
+
+    // Try to get photo capabilities
+    try {
+      const capabilities = await imageCapture.getPhotoCapabilities();
+      console.log('[Capture] Photo capabilities:', capabilities);
+    } catch (err) {
+      console.log('[Capture] Could not get photo capabilities:', err);
+    }
+
+    // Take photo with settings
+    const photoSettings: PhotoSettings = {
+      fillLightMode: 'auto',
+      imageHeight: 1920, // Prefer high resolution
+      imageWidth: 1080,  // Prefer high resolution
+    };
+
+    const blob = await imageCapture.takePhoto(photoSettings);
+    console.log(`[Capture] ✅ ImageCapture: ${blob.size} bytes (${blob.type})`);
+
+    return {
+      blob,
+      captureMethod: 'ImageCapture',
+      debugInfo: `ImageCapture ${blob.size} bytes`,
+    };
+  } catch (err) {
+    console.warn('[Capture] ImageCapture failed:', err, '- falling back to canvas');
+    throw err; // Let caller handle fallback
+  }
+}
+
+// ── Crop blob using DOM rect mapping (0-indexed pixel coordinates) ──
+export async function cropBlobWithDOM(
+  blob: Blob,
+  videoElement: HTMLVideoElement,
+  cropFrameElement: HTMLElement | null,
+  onProgress?: (stage: string) => void
+): Promise<{
+  croppedBlob: Blob;
+  cropRect: { x: number; y: number; width: number; height: number };
+  debugInfo: string;
+}> {
+  try {
+    onProgress?.('Creating ImageBitmap from blob');
+
+    // Convert blob to ImageBitmap
+    const bitmap = await createImageBitmap(blob);
+    const sourceWidth = bitmap.width;
+    const sourceHeight = bitmap.height;
+    console.log(`[Crop] Source bitmap: ${sourceWidth}×${sourceHeight}`);
+
+    // Calculate source crop rect from DOM elements
+    const videoRect = videoElement.getBoundingClientRect();
+    if (!cropFrameElement) {
+      throw new Error('Crop frame element not found');
+    }
+
+    const frameRect = cropFrameElement.getBoundingClientRect();
+
+    // Find intersection
+    const left = Math.max(videoRect.left, frameRect.left);
+    const top = Math.max(videoRect.top, frameRect.top);
+    const right = Math.min(videoRect.right, frameRect.right);
+    const bottom = Math.min(videoRect.bottom, frameRect.bottom);
+
+    if (left >= right || top >= bottom) {
+      throw new Error('No intersection between video and crop frame');
+    }
+
+    const intersectionWidth = right - left;
+    const intersectionHeight = bottom - top;
+
+    // Map UI pixels to source pixels
+    const scaleX = sourceWidth / videoRect.width;
+    const scaleY = sourceHeight / videoRect.height;
+
+    const sx = Math.max(0, Math.floor((left - videoRect.left) * scaleX));
+    const sy = Math.max(0, Math.floor((top - videoRect.top) * scaleY));
+    let sw = Math.floor(intersectionWidth * scaleX);
+    let sh = Math.floor(intersectionHeight * scaleY);
+
+    // Clamp to bitmap bounds
+    sw = Math.min(sw, sourceWidth - sx);
+    sh = Math.min(sh, sourceHeight - sy);
+
+    console.log(`[Crop] 📊 Source crop: x=${sx}, y=${sy}, w=${sw}, h=${sh}`);
+
+    // Create crop canvas
+    onProgress?.('Creating crop canvas');
+    const cropCanvas = document.createElement('canvas');
+    const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+    if (!cropCtx) {
+      throw new Error('Cannot create crop canvas context');
+    }
+
+    cropCanvas.width = sw;
+    cropCanvas.height = sh;
+    cropCtx.imageSmoothingEnabled = false; // ⭐ NO SMOOTHING
+    cropCtx.imageSmoothingQuality = 'low';
+    cropCtx.filter = 'none';
+
+    // Draw cropped region from bitmap
+    cropCtx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+    console.log(`[Crop] ✅ Crop canvas: ${cropCanvas.width}×${cropCanvas.height}`);
+
+    // Convert crop canvas to blob
+    onProgress?.('Converting to JPEG blob');
+    const croppedBlob = await new Promise<Blob>((resolve, reject) => {
+      cropCanvas.toBlob(
+        (blob) => {
+          if (!blob) reject(new Error('toBlob returned null'));
+          else resolve(blob);
+        },
+        'image/jpeg',
+        0.95
+      );
+    });
+
+    console.log(`[Crop] 📦 Cropped blob: ${croppedBlob.size} bytes`);
+
+    return {
+      croppedBlob,
+      cropRect: { x: sx, y: sy, width: sw, height: sh },
+      debugInfo: `Crop ${sw}×${sh}px (${croppedBlob.size} bytes)`,
+    };
+  } catch (err) {
+    console.error('[Crop] Error:', err);
+    throw err;
+  }
+}
+
+// ── Decode cropped barcode using BarcodeDetector (native) or ZXing (fallback) ──
+export async function decodeCroppedBarcode(
+  input: Blob | HTMLCanvasElement | HTMLImageElement
+): Promise<{
+  barcode?: string;
+  decoderUsed: 'BarcodeDetector' | 'ZXing' | 'failed';
+  debugInfo: string;
+}> {
+  let debugInfo = '';
+
+  // Type assertion for BarcodeDetector (native API, available in supporting browsers)
+  const BarcodeDetectorAPI = (typeof window !== 'undefined' ? (window as any).BarcodeDetector : null) as any;
+
+  // Try BarcodeDetector (native API, if supported)
+  if (BarcodeDetectorAPI) {
+    try {
+      console.log('[Decode] 🔍 Trying BarcodeDetector (native)...');
+      const detector = new BarcodeDetectorAPI({
+        formats: ['code_128', 'code_39', 'code_93', 'itf', 'ean_13', 'ean_8', 'codabar'],
+      });
+
+      // Create ImageBitmap from input if it's a Blob
+      let bitmapOrElement: any = input;
+      if (input instanceof Blob) {
+        bitmapOrElement = await createImageBitmap(input);
+      }
+
+      const results = await detector.detect(bitmapOrElement);
+      if (results.length > 0) {
+        const barcode = results[0].rawValue?.trim()?.toUpperCase();
+        if (barcode && isValidBarcode(barcode)) {
+          debugInfo = `BarcodeDetector: ${barcode}`;
+          console.log('[Decode] ✅ BarcodeDetector SUCCESS:', barcode);
+          return {
+            barcode,
+            decoderUsed: 'BarcodeDetector',
+            debugInfo,
+          };
+        } else {
+          debugInfo = `BarcodeDetector found: "${results[0].rawValue}" (invalid format)`;
+        }
+      }
+    } catch (err) {
+      console.log('[Decode] BarcodeDetector failed:', err);
+      debugInfo = `BarcodeDetector error: ${(err as Error).message}`;
+    }
+  }
+
+  // Fallback to ZXing
+  try {
+    console.log('[Decode] 🔍 Trying ZXing (fallback)...');
+
+    // Convert Blob to canvas or keep as is
+    let sourceElement: HTMLCanvasElement | HTMLImageElement;
+
+    if (input instanceof Blob) {
+      const bitmap = await createImageBitmap(input);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Cannot create canvas context');
+      ctx.drawImage(bitmap, 0, 0);
+      sourceElement = canvas;
+    } else {
+      sourceElement = input as HTMLCanvasElement | HTMLImageElement;
+    }
+
+    // Try 1D reader with proper hints
+    const hints = new Map() as any;
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODE_93,
+      BarcodeFormat.ITF,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.CODABAR,
+    ]);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+
+    const reader1D = new BrowserMultiFormatOneDReader(hints);
+
+    try {
+      if (sourceElement instanceof HTMLCanvasElement) {
+        const result = await reader1D.decodeFromCanvas(sourceElement);
+        if (result) {
+          const barcode = result.getText()?.trim()?.toUpperCase();
+          if (barcode && isValidBarcode(barcode)) {
+            debugInfo += ` -> ZXing 1D: ${barcode}`;
+            console.log('[Decode] ✅ ZXing 1D SUCCESS:', barcode);
+            return {
+              barcode,
+              decoderUsed: 'ZXing',
+              debugInfo,
+            };
+          }
+        }
+      } else {
+        // HTMLImageElement
+        const result = await reader1D.decodeFromImageElement(sourceElement);
+        if (result) {
+          const barcode = result.getText()?.trim()?.toUpperCase();
+          if (barcode && isValidBarcode(barcode)) {
+            debugInfo += ` -> ZXing img: ${barcode}`;
+            console.log('[Decode] ✅ ZXing SUCCESS:', barcode);
+            return {
+              barcode,
+              decoderUsed: 'ZXing',
+              debugInfo,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[Decode] ZXing 1D failed:', e);
+    }
+
+    // Try multi-format reader
+    const hintsMulti = new Map() as any;
+    hintsMulti.set(DecodeHintType.TRY_HARDER, true);
+    const readerMulti = new BrowserMultiFormatReader(hintsMulti);
+
+    try {
+      if (sourceElement instanceof HTMLCanvasElement) {
+        const result = await readerMulti.decodeFromCanvas(sourceElement);
+        if (result) {
+          const barcode = result.getText()?.trim()?.toUpperCase();
+          if (barcode && isValidBarcode(barcode)) {
+            debugInfo += ` -> ZXing Multi: ${barcode}`;
+            console.log('[Decode] ✅ ZXing Multi SUCCESS:', barcode);
+            return {
+              barcode,
+              decoderUsed: 'ZXing',
+              debugInfo,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[Decode] ZXing Multi failed:', e);
+    }
+  } catch (err) {
+    console.error('[Decode] ZXing error:', err);
+    debugInfo += ` -> ZXing exception: ${(err as Error).message}`;
+  }
+
+  console.log('[Decode] ❌ No barcode detected');
+  return {
+    decoderUsed: 'failed',
+    debugInfo: debugInfo || 'No decoder available or barcode not detected',
+  };
 }
