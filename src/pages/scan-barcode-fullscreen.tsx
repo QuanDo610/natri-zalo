@@ -12,6 +12,27 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 import type { Result } from '@zxing/library';
 
+// Import Zalo camera from zmp-sdk
+let camera: any = null;
+try {
+  const zmpSdk = (window as any).zmp || (window as any).zaloSdk;
+  if (zmpSdk?.camera) {
+    camera = zmpSdk.camera;
+    console.log('[Init] Loaded zmp-sdk camera');
+  }
+} catch (err) {
+  console.warn('[Init] zmp-sdk not available:', err);
+}
+
+// Fallback: declare window extensions
+declare global {
+  interface Window {
+    zalo?: any;
+    zmp?: any;
+    zaloSdk?: any;
+  }
+}
+
 // ── Auto-scan state ──
 type ScannerState = 'initializing' | 'scanning' | 'detected' | 'error' | 'closed';
 
@@ -48,6 +69,7 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
   const streamRef = useRef<MediaStream | null>(null);
   const scannerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detectedRef = useRef(false);
+  const cameraContextRef = useRef<any>(null);
   // Persistent ZXing reader — created ONCE, reused every scan frame
   const readerRef = useRef<BrowserMultiFormatReader>(createZXingReader());
 
@@ -55,47 +77,135 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
   const [torch, setTorch] = useState(false);
   const [statusText, setStatusText] = useState('Khởi tạo camera...');
   const [detectedBarcode, setDetectedBarcode] = useState('');
+  const [cameraList, setCameraList] = useState<any[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const noDetectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Start camera stream ──
+  // ── Start camera stream using Zalo Camera Context API ──
   const startCamera = useCallback(async () => {
     try {
-      setStatusText('Yêu cầu quyền camera...');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1440 },
-          height: { ideal: 1920 },
-          frameRate: { ideal: 30 },
-        },
-        audio: false,
-      });
+      setStatusText('Khởi tạo camera...');
 
-      if (!videoRef.current) throw new Error('Video element not found');
+      // Use camera from zmp-sdk or fallback to window.zalo.camera
+      let zalocamera = camera || (window as any).zalo?.camera;
+      let sdkRetries = 0;
+      
+      // Wait for camera to be available (retry for up to 3 seconds)
+      while (!zalocamera && sdkRetries < 6) {
+        console.log(`[Camera] Waiting for camera API... (${sdkRetries + 1}/6)`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        zalocamera = camera || (window as any).zalo?.camera;
+        sdkRetries++;
+      }
 
-      streamRef.current = stream;
-      videoRef.current.srcObject = stream;
+      if (!zalocamera) {
+        console.error('[Camera] Camera API not available after retries');
+        setStatusText(
+          'Lỗi: Camera API không hoạt động.\n\n' +
+          '✓ Chỉ hoạt động trong Zalo Mini App\n' +
+          '✓ Kiểm tra: https://miniapp.zaloplatforms.com\n' +
+          '✓ Đảm bảo zmp-sdk đã được tải'
+        );
+        setState('error');
+        return;
+      }
 
-      // Wait for video to load
-      await new Promise<void>((resolve) => {
-        const onLoadedMetadata = () => {
-          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-          resolve();
-        };
-        videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
-        // Timeout failsafe
-        setTimeout(() => {
-          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-          resolve();
-        }, 2000);
-      });
+      console.log('[Camera] Camera API available, requesting permission...');
 
-      console.log('✅ Camera stream ready');
-      setStatusText('Đang quét...');
+      // Always request permission
+      setStatusText('Yêu cầu quyền truy cập camera...');
+      try {
+        if (typeof zalocamera.requestCameraPermission === 'function') {
+          await zalocamera.requestCameraPermission();
+        }
+      } catch (err) {
+        console.warn('[Camera] Permission request error (may already be granted):', err);
+      }
+
+      // Verify permission was granted with retries
+      let hasPermission = false;
+      let permRetries = 0;
+      while (!hasPermission && permRetries < 3) {
+        if (typeof zalocamera.checkZaloCameraPermission === 'function') {
+          hasPermission = await zalocamera.checkZaloCameraPermission();
+          console.log(`[Camera] Permission check #${permRetries + 1}:`, hasPermission);
+        } else {
+          // If checkZaloCameraPermission is not available, assume permission granted
+          hasPermission = true;
+          console.log('[Camera] checkZaloCameraPermission not available, assuming granted');
+        }
+
+        if (!hasPermission) {
+          permRetries++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (permRetries < 3 && typeof zalocamera.requestCameraPermission === 'function') {
+            await zalocamera.requestCameraPermission();
+          }
+        }
+      }
+
+      if (!hasPermission) {
+        console.error('[Camera] Permission denied after retries');
+        setStatusText('Quyền camera bị từ chối.\nVui lòng cấp quyền trong cài đặt.');
+        setState('error');
+        return;
+      }
+
+      console.log('✅ Camera permission granted');
+
+      // Create and initialize camera context
+      setStatusText('Khởi động camera...');
+      if (typeof zalocamera.createCameraContext !== 'function') {
+        throw new Error('createCameraContext not available');
+      }
+
+      const context = zalocamera.createCameraContext();
+      cameraContextRef.current = context;
+
+      console.log('[Camera] Starting stream...');
+      try {
+        await context.start();
+      } catch (err) {
+        console.error('[Camera] Stream start error:', err);
+        throw new Error(`Failed to start camera stream: ${err}`);
+      }
+
+      // Get camera list
+      let cameras: any[] = [];
+      if (typeof zalocamera.getCameraList === 'function') {
+        cameras = await zalocamera.getCameraList();
+        console.log('[Camera] Available cameras:', cameras);
+        setCameraList(cameras);
+      }
+
+      if (cameras.length === 0) {
+        console.warn('[Camera] No cameras in list, but stream started');
+      }
+
+      // Get and set rear camera as default
+      let selectedId = '';
+      if (typeof zalocamera.getSelectedDeviceId === 'function') {
+        selectedId = await zalocamera.getSelectedDeviceId();
+      }
+
+      if (cameras.length > 0) {
+        const rearCamera = cameras.find((cam: any) => cam.facing === 'environment' || cam.facing === 'back');
+        if (rearCamera && selectedId !== rearCamera.deviceId && typeof zalocamera.setDeviceId === 'function') {
+          console.log('[Camera] Setting rear camera as default:', rearCamera.deviceId);
+          await zalocamera.setDeviceId(rearCamera.deviceId);
+          selectedId = rearCamera.deviceId;
+        }
+      }
+
+      setSelectedCameraId(selectedId || 'default');
+
+      console.log('✅ Camera initialized successfully');
+      setStatusText('Đang quét barcode...');
       setState('scanning');
     } catch (err) {
-      console.error('Camera error:', err);
-      setStatusText('Lỗi camera. Vui lòng kiểm tra quyền.');
+      console.error('Camera initialization error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setStatusText(`Lỗi camera: ${errMsg}`);
       setState('error');
     }
   }, []);
@@ -211,8 +321,11 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
       // Cleanup
       if (scannerRef.current) clearInterval(scannerRef.current);
       if (noDetectionTimeoutRef.current) clearTimeout(noDetectionTimeoutRef.current);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+      // Stop Zalo camera context
+      if (cameraContextRef.current) {
+        cameraContextRef.current.stop().catch((err) => {
+          console.error('[Camera] Stop error:', err);
+        });
       }
     };
   }, [startCamera]);
@@ -223,6 +336,47 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
       startAutoScan();
     }
   }, [state, startAutoScan]);
+
+  // ── Camera switch using Zalo flip API ──
+  const handleCameraSwitch = async () => {
+    try {
+      if (!cameraContextRef.current) {
+        console.log('[Camera] Camera context not initialized');
+        return;
+      }
+
+      const zalocamera = camera || (window as any).zalo?.camera;
+      if (!zalocamera) {
+        console.error('[Camera] Camera API not available');
+        return;
+      }
+
+      if (cameraList.length < 2) {
+        console.log('[Camera] Only one camera available');
+        return;
+      }
+
+      // Use flip to switch between front and rear cameras
+      console.log('[Camera] Flipping camera...');
+      setStatusText('Chuyển camera...');
+      await cameraContextRef.current.flip();
+
+      // Get new selected device
+      if (typeof zalocamera.getSelectedDeviceId === 'function') {
+        const newDeviceId = await zalocamera.getSelectedDeviceId();
+        setSelectedCameraId(newDeviceId);
+        console.log('[Camera] Flipped to device:', newDeviceId);
+      }
+
+      setStatusText('Đã chuyển camera ✓\nĐang quét barcode...');
+      setTimeout(() => {
+        setStatusText('Đang quét barcode...');
+      }, 1500);
+    } catch (err) {
+      console.error('[Camera] Flip error:', err);
+      setStatusText('Lỗi chuyển camera');
+    }
+  };
 
   // ── Torch toggle ──
   const handleTorchToggle = async () => {
@@ -253,8 +407,11 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
   const handleClose = () => {
     if (scannerRef.current) clearInterval(scannerRef.current);
     if (noDetectionTimeoutRef.current) clearTimeout(noDetectionTimeoutRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+    // Stop Zalo camera context gracefully
+    if (cameraContextRef.current) {
+      cameraContextRef.current.stop().catch((err) => {
+        console.error('[Camera] Stop error on close:', err);
+      });
     }
     setState('closed');
     navigate(-1);
@@ -379,6 +536,22 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
             }}
           >
             {torch ? '💡 Tắt' : '💡 Bật'}
+          </button>
+          <button
+            onClick={handleCameraSwitch}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: 'rgba(255,255,255,0.2)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              fontSize: '12px',
+            }}
+          >
+            📷 Chuyển
           </button>
           <button
             onClick={handleClose}
