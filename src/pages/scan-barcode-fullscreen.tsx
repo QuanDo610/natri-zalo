@@ -1,15 +1,15 @@
 // ===== Full-Screen Barcode Scanner — Auto-Scan Realtime =====
-// Zalo Mini App optimized: full-screen camera + ROI auto-detect + realtime feedback
+// Fast auto-detect: persistent ZXing reader, 150ms loop, format hints
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'zmp-ui';
-import { Box, Button, Text } from 'zmp-ui';
+import { useNavigate } from 'zmp-ui';
+import { Box } from 'zmp-ui';
 import { 
   isValidBarcode, 
   parseBarcodePrefix, 
-  BARCODE_PREFIXES 
 } from '@/services/scanner-enhanced';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 import type { Result } from '@zxing/library';
 
 // ── Auto-scan state ──
@@ -19,65 +19,22 @@ interface ScanResult {
   barcode: string;
   productName?: string;
   sku?: string;
-  proofImageBlob?: Blob;
 }
 
-// ── ROI Canvas dimensions (% of video) ──
-const ROI_CONFIG = {
-  left: '12.5%',    // (100-75)/2 -> center with 75% width
-  top: '30%',
-  width: '75%',
-  height: '40%',
-};
-
-// ── Create ZXing reader with hints ──
-function createZXingReader() {
-  return new BrowserMultiFormatReader();
-}
-
-// ── Compute source crop rect from DOM elements ──
-function computeSourceCropRect(
-  videoElement: HTMLVideoElement,
-  frameElement: HTMLElement | null,
-): { x: number; y: number; width: number; height: number } | null {
-  if (!frameElement) return null;
-
-  const videoRect = videoElement.getBoundingClientRect();
-  const frameRect = frameElement.getBoundingClientRect();
-
-  // Find intersection
-  const left = Math.max(videoRect.left, frameRect.left);
-  const top = Math.max(videoRect.top, frameRect.top);
-  const right = Math.min(videoRect.right, frameRect.right);
-  const bottom = Math.min(videoRect.bottom, frameRect.bottom);
-
-  if (left >= right || top >= bottom) return null;
-
-  // Map UI pixels to video source pixels
-  const scaleX = videoElement.videoWidth / videoRect.width;
-  const scaleY = videoElement.videoHeight / videoRect.height;
-
-  const sx = Math.max(0, Math.floor((left - videoRect.left) * scaleX));
-  const sy = Math.max(0, Math.floor((top - videoRect.top) * scaleY));
-  let sw = Math.floor((right - left) * scaleX);
-  let sh = Math.floor((bottom - top) * scaleY);
-
-  // Clamp to video bounds
-  sw = Math.min(sw, videoElement.videoWidth - sx);
-  sh = Math.min(sh, videoElement.videoHeight - sy);
-
-  return { x: sx, y: sy, width: sw, height: sh };
-}
-
-// ── Decode from ROI canvas ──
-async function decodeROI(canvas: HTMLCanvasElement): Promise<Result | null> {
-  try {
-    const reader = createZXingReader();
-    const result = await reader.decodeFromCanvas(canvas);
-    return result;
-  } catch (err) {
-    return null;
-  }
+// ── Create ONE persistent ZXing reader with format hints (reused across scans) ──
+function createZXingReader(): BrowserMultiFormatReader {
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.DATA_MATRIX,
+  ]);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+  return new BrowserMultiFormatReader(hints);
 }
 
 interface ScanBarcodeFullScreenProps {
@@ -86,19 +43,19 @@ interface ScanBarcodeFullScreenProps {
 
 function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
   const navigate = useNavigate();
-  const location = useLocation();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const frameRef = useRef<HTMLDivElement>(null);
   const roiCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scannerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scannerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detectedRef = useRef(false);
+  // Persistent ZXing reader — created ONCE, reused every scan frame
+  const readerRef = useRef<BrowserMultiFormatReader>(createZXingReader());
 
   const [state, setState] = useState<ScannerState>('initializing');
   const [torch, setTorch] = useState(false);
   const [statusText, setStatusText] = useState('Khởi tạo camera...');
-  const [lastScanTime, setLastScanTime] = useState(0);
   const [detectedBarcode, setDetectedBarcode] = useState('');
+  const noDetectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Start camera stream ──
   const startCamera = useCallback(async () => {
@@ -134,9 +91,8 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
       });
 
       console.log('✅ Camera stream ready');
-      setStatusText('Sẵn sàng quét...');
+      setStatusText('Đang quét...');
       setState('scanning');
-      setLastScanTime(Date.now());
     } catch (err) {
       console.error('Camera error:', err);
       setStatusText('Lỗi camera. Vui lòng kiểm tra quyền.');
@@ -146,111 +102,106 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
 
   // ── Auto-scan loop ──
   const startAutoScan = useCallback(() => {
-    const scanInterval = 300; // 300ms between scans
-    let noDetectCount = 0;
-    const maxNoDetectTime = 7000; // 7 seconds
+    const SCAN_INTERVAL = 300; // ms — scan every 300ms
+    let attemptCount = 0;
+    const NO_DETECT_TIMEOUT = 6000; // 6 seconds before showing hint
+
+    // Set timeout to show hint if no detection
+    noDetectionTimeoutRef.current = setTimeout(() => {
+      if (!detectedRef.current) {
+        setStatusText(
+          'Không tìm thấy barcode.\nHãy đưa camera gần hơn hoặc chỉnh lại góc.'
+        );
+        console.log('[Scan] No detection after 6s — showing hint, scan continues...');
+      }
+    }, NO_DETECT_TIMEOUT);
 
     const scanLoop = async () => {
-      if (detectedRef.current || state !== 'scanning' || !videoRef.current || !frameRef.current) {
+      if (detectedRef.current || !videoRef.current) return;
+
+      const video = videoRef.current;
+      const canvas = roiCanvasRef.current;
+      if (!canvas) return;
+
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) {
+        if (attemptCount % 10 === 0) console.debug('[Scan] Video not ready yet');
         return;
       }
 
+      // Draw full frame to canvas
+      canvas.width = vw;
+      canvas.height = vh;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(video, 0, 0, vw, vh);
+
+      attemptCount++;
       try {
-        // Compute ROI
-        const crop = computeSourceCropRect(videoRef.current, frameRef.current);
-        if (!crop) {
-          console.warn('[ROI] No intersection');
-          return;
-        }
+        // Use persistent reader — no re-initialization overhead
+        const result: Result = await readerRef.current.decodeFromCanvas(canvas);
+        const rawText = result.getText().trim().toUpperCase();
 
-        // Draw ROI to canvas
-        const roi = roiCanvasRef.current;
-        if (!roi) return;
+        console.log(`[Scan] #${attemptCount} raw="${rawText}" format=${result.getBarcodeFormat()}`);
 
-        roi.width = crop.width;
-        roi.height = crop.height;
-        const ctx = roi.getContext('2d', { willReadFrequently: true });
-        if (!ctx) return;
+        if (isValidBarcode(rawText)) {
+          console.log(`✅ BARCODE DETECTED: "${rawText}" (attempt #${attemptCount})`);
 
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(
-          videoRef.current,
-          crop.x,
-          crop.y,
-          crop.width,
-          crop.height,
-          0,
-          0,
-          crop.width,
-          crop.height
-        );
-
-        // Decode
-        const result = await decodeROI(roi);
-        if (result && result.getText()) {
-          const barcodeText = result.getText().trim().toUpperCase();
-          
-          if (isValidBarcode(barcodeText)) {
-            console.log('✅ DETECTED:', barcodeText);
-            detectedRef.current = true;
-            setDetectedBarcode(barcodeText);
-            setState('detected');
-
-            // Freeze frame
-            roi.toBlob((blob) => {
-              if (blob) {
-                const parsed = parseBarcodePrefix(barcodeText);
-                const scanResult: ScanResult = {
-                  barcode: barcodeText,
-                  productName: parsed?.productName,
-                  sku: parsed?.sku,
-                  proofImageBlob: blob,
-                };
-
-                // Haptic feedback (if supported)
-                if ('vibrate' in navigator) {
-                  navigator.vibrate([100, 50, 100]);
-                }
-
-                // Call callback or navigate back
-                if (props.onResult) {
-                  props.onResult(scanResult);
-                }
-
-                // Pass result via state and navigate back
-                setTimeout(() => {
-                  // Store in sessionStorage for next page to pick up
-                  sessionStorage.setItem('scanResult', barcodeText);
-                  window.history.back();
-                }, 800);
-              }
-            }, 'image/jpeg', 0.95);
-            return;
+          // Clear timeout hint
+          if (noDetectionTimeoutRef.current) {
+            clearTimeout(noDetectionTimeoutRef.current);
+            noDetectionTimeoutRef.current = null;
           }
-        }
 
-        // Track scan attempts
-        noDetectCount++;
-        const elapsedTime = Date.now() - lastScanTime;
-        if (elapsedTime > maxNoDetectTime && noDetectCount > 15) {
-          setStatusText(
-            '💡 Đưa gần hơn / Xoay tem 10-20° / Tắt flash nếu bị lóa'
-          );
-        } else if (noDetectCount % 3 === 0) {
-          setStatusText('Đang quét...');
+          detectedRef.current = true;
+          setDetectedBarcode(rawText);
+          setState('detected');
+          setStatusText(`Đã nhận barcode:\n${rawText}`);
+
+          // Stop scan loop immediately
+          if (scannerRef.current) {
+            clearInterval(scannerRef.current);
+            scannerRef.current = null;
+          }
+
+          // Haptic feedback
+          if ('vibrate' in navigator) navigator.vibrate([80, 40, 80]);
+
+          // Callback
+          if (props.onResult) {
+            const parsed = parseBarcodePrefix(rawText);
+            props.onResult({ barcode: rawText, productName: parsed?.productName, sku: parsed?.sku });
+          }
+
+          // Store & navigate back
+          setTimeout(() => {
+            setStatusText('Đang xử lý...');
+            setTimeout(() => {
+              sessionStorage.setItem('scanResult', rawText);
+              console.log(`[Scanner] Stored "${rawText}" in sessionStorage → navigating back`);
+              window.history.back();
+            }, 200);
+          }, 300);
+        } else {
+          console.debug(`[Scan] #${attemptCount} not valid barcode: "${rawText}"`);
         }
-      } catch (err) {
-        // Silent fail, continue scanning
-        console.debug('[Scan] Decode attempt:', err);
+      } catch {
+        // ZXing throws NotFoundException when no barcode in frame — normal, continue
+        if (attemptCount % 20 === 0) {
+          console.debug(`[Scan] ${attemptCount} attempts, no barcode yet`);
+        }
       }
     };
 
-    // First scan after camera ready
-    scanLoop();
+    // Show initial status
+    setStatusText('Đang quét barcode...');
 
-    // Continuous scan loop
-    scannerRef.current = setInterval(scanLoop, scanInterval);
-  }, [state, lastScanTime, props, navigate, location]);
+    // Run immediately, then every SCAN_INTERVAL ms
+    scanLoop();
+    scannerRef.current = setInterval(scanLoop, SCAN_INTERVAL);
+  }, [props]);
 
   // ── Initialize camera on mount ──
   useEffect(() => {
@@ -259,6 +210,7 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
     return () => {
       // Cleanup
       if (scannerRef.current) clearInterval(scannerRef.current);
+      if (noDetectionTimeoutRef.current) clearTimeout(noDetectionTimeoutRef.current);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -300,6 +252,7 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
   // ── Close scanner ──
   const handleClose = () => {
     if (scannerRef.current) clearInterval(scannerRef.current);
+    if (noDetectionTimeoutRef.current) clearTimeout(noDetectionTimeoutRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
     }
@@ -332,77 +285,14 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
         muted
         disablePictureInPicture
         style={{
-          flex: 1,
+          position: 'absolute',
+          top: 0,
+          left: 0,
           width: '100%',
           height: '100%',
-          objectFit: 'contain',
+          objectFit: 'cover',
           backgroundColor: '#000',
           display: 'block',
-        }}
-      />
-
-      {/* ── ROI Frame ── */}
-      <div
-        ref={frameRef}
-        style={{
-          position: 'absolute',
-          left: ROI_CONFIG.left,
-          top: ROI_CONFIG.top,
-          width: ROI_CONFIG.width,
-          height: ROI_CONFIG.height,
-          border: '2px solid #10b981',
-          boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,0.5)',
-          borderRadius: '0px',
-        }}
-      />
-
-      {/* ── Corner markers ── */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 'calc(' + ROI_CONFIG.left + ' - 2px)',
-          top: 'calc(' + ROI_CONFIG.top + ' - 2px)',
-          width: '16px',
-          height: '16px',
-          border: '3px solid #10b981',
-          borderRight: 'none',
-          borderBottom: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 'calc((100% - ' + ROI_CONFIG.left + ' - ' + ROI_CONFIG.width + ') - 2px)',
-          top: 'calc(' + ROI_CONFIG.top + ' - 2px)',
-          width: '16px',
-          height: '16px',
-          border: '3px solid #10b981',
-          borderLeft: 'none',
-          borderBottom: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: 'calc(' + ROI_CONFIG.left + ' - 2px)',
-          bottom: 'calc((100% - ' + ROI_CONFIG.top + ' - ' + ROI_CONFIG.height + ') - 2px)',
-          width: '16px',
-          height: '16px',
-          border: '3px solid #10b981',
-          borderRight: 'none',
-          borderTop: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 'calc((100% - ' + ROI_CONFIG.left + ' - ' + ROI_CONFIG.width + ') - 2px)',
-          bottom: 'calc((100% - ' + ROI_CONFIG.top + ' - ' + ROI_CONFIG.height + ') - 2px)',
-          width: '16px',
-          height: '16px',
-          border: '3px solid #10b981',
-          borderLeft: 'none',
-          borderTop: 'none',
         }}
       />
 
@@ -451,8 +341,11 @@ function ScanBarcodeFullScreen(props: ScanBarcodeFullScreenProps) {
           bottom: '120px',
           textAlign: 'center',
           color: '#fff',
-          fontSize: '12px',
+          fontSize: '13px',
           zIndex: 100,
+          whiteSpace: 'pre-line',
+          lineHeight: '1.4',
+          fontWeight: '500',
         }}
       >
         {statusText}
