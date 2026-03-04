@@ -18,6 +18,7 @@ import DealerDashboardPage from "@/pages/dealer-dashboard";
 import StaffHomePage from "@/pages/staff-home";
 import AdminHomePage from "@/pages/admin-home";
 import BarcodeManagePage from "@/pages/barcode-manage";
+import ScanBarcodeFullScreen from "@/pages/scan-barcode-fullscreen";
 
 const Layout = () => {
   return (
@@ -35,6 +36,7 @@ const Layout = () => {
               <Route path="/staff-home" element={<StaffHomePage />} />
               <Route path="/admin-home" element={<AdminHomePage />} />
               <Route path="/barcode-manage" element={<BarcodeManagePage />} />
+              <Route path="/scan-barcode" element={<ScanBarcodeFullScreen />} />
             </AnimationRoutes>
           </ZMPRouter>
         </SnackbarProvider>
